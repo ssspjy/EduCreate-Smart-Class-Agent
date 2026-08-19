@@ -1,0 +1,1 @@
+"""Pydantic Schema 占位（含 DAG 节点/边）。"""

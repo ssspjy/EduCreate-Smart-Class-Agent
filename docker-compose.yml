@@ -1,0 +1,36 @@
+# Docker Compose — 师创智课一键启动
+#
+# 本文件遵循 docs/ARCHITECTURE.md §2 部署拓扑。
+# 当前骨架阶段仅启动 frontend + backend 两个服务，验证可联通后再接入
+# PostgreSQL + pgvector / Redis / MinIO / Celery Worker / 实时网关。
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: educreate-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_NAME=EduCreate Smart Class Agent
+      - APP_VERSION=0.1.0
+      - CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: educreate-frontend
+    restart: unless-stopped
+    ports:
+      - "5173:80"        # Nginx 服务静态文件，浏览器侧访问 5173
+    depends_on:
+      backend:
+        condition: service_healthy

@@ -1,53 +1,31 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-*.egg-info/
-.eggs/
-dist/
-build/
-*.egg
-
-# Virtual environments
+# 依赖说明
+node_modules/
 .venv/
 venv/
-env/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# 构建产物
+backend/dist/
+frontend/dist/
+
+# 环境变量
 .env
 .env.local
-.env.*.local
+*.env.local
 
-# IDE
-.idea/
+# IDE / OS
 .vscode/
-*.swp
-*.swo
+.idea/
 .DS_Store
 Thumbs.db
 
-# Logs
+# 数据 / 临时
 *.log
-logs/
+tmp/
+uploads/
 
-# Node / frontend (if added later)
-node_modules/
-.next/
-out/
-.parcel-cache/
-
-# Project specific
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.coverage
-htmlcov/
-
-# Local data / cache
-data/
-*.db
-*.sqlite
-*.sqlite3
-
-# OS
-desktop.ini
+# 外部参考材料（不在仓库范围内跟踪）
+基础/
