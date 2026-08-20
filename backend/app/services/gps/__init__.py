@@ -14,7 +14,6 @@ from app.services.gps.clarifier import (
     get_or_create_session,
     get_session,
     get_session as get_gps_session,
-    missing_slots,
 )
 from app.services.gps.dag_builder import build_dag, build_dag_from_slots
 from app.services.gps.reasoner import extract_intent
@@ -28,7 +27,6 @@ __all__ = [
     "get_or_create_session",
     "create_session",
     "clear_session",
-    "missing_slots",
     "build_dag",
     "build_dag_from_slots",
 ]
