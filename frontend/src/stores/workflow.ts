@@ -22,6 +22,7 @@ interface WorkflowState {
   // 参考资料
   materials: Material[];
   addMaterial: (m: Material) => void;
+  removeMaterial: (fileId: string) => void;
   clearMaterials: () => void;
 
   // GPS 澄清
@@ -60,6 +61,8 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
   materials: [],
   addMaterial: (m) =>
     set((s) => ({ materials: [...s.materials, m] })),
+  removeMaterial: (fileId) =>
+    set((s) => ({ materials: s.materials.filter((m) => m.file_id !== fileId) })),
   clearMaterials: () => set({ materials: [] }),
 
   gpsResult: null,

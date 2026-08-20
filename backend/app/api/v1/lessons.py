@@ -305,51 +305,112 @@ async def generate_outline(
     req: GpsClarifyResult,
     db: Session = Depends(get_db),
 ) -> OutlineResponse:
-    """基于 GPS 澄清结果生成章节大纲。
+    """基于 GPS 澄清结果动态生成章节大纲。
 
-    占位实现：后续接入 PPTAgent Outliner。
+    根据 GPS 字段动态构建章节（不再硬编码"浮力"模板）。
     """
-    sections = [
-        OutlineSection(
-            id="1",
-            title="引入：生活中的浮力现象",
-            bullets=["展示轮船浮在水面", "提问：为什么钢铁做的船能浮？", "引出浮力概念"],
+    subject = (req.subject or "通用").strip()
+    grade = (req.grade or "未指定年级").strip()
+    topic = (req.topic or "未命名课题").strip()
+    objectives = req.objectives or []
+    key_points = req.key_points or []
+    difficulty = req.difficulty or "medium"
+    style = req.style or "interactive"
+
+    # ── 章节结构：根据 GPS 字段动态生成 ─────────────────────────────────────
+    sections: list[OutlineSection] = []
+
+    # 1. 引入（始终存在）
+    sections.append(OutlineSection(
+        id="1",
+        title=f"引入：{topic}",
+        bullets=[
+            f"从生活实例切入{topic}的话题",
+            f"提问：什么是{topic}的核心问题？",
+            "引出本节课的思考方向",
+        ],
+        duration_minutes=5,
+        slide_count=3,
+    ))
+
+    # 2. 目标与重难点（仅在 GPS 提取到时展示）
+    if objectives or key_points:
+        bullets: list[str] = []
+        if objectives:
+            bullets.append("学习目标：" + "；".join(objectives[:3]))
+        if key_points:
+            bullets.append("教学重点：" + "；".join(key_points[:3]))
+        sections.append(OutlineSection(
+            id=str(len(sections) + 1),
+            title="学习目标与重难点",
+            bullets=bullets,
             duration_minutes=5,
-            slide_count=3,
-        ),
-        OutlineSection(
-            id="2",
-            title="浮力及其方向",
-            bullets=["浮力定义：液体对浸入物体的向上压力差", "方向：竖直向上", "用弹簧测力计演示"],
+            slide_count=2,
+        ))
+
+    # 3. 核心内容讲解（核心章节，按难度自适应页数与时长）
+    style_hint = {
+        "theory": "概念讲解 + 公式推导",
+        "interactive": "互动探究 + 小组讨论",
+        "experiment": "实验演示 + 现象分析",
+    }.get(style, "互动讲解")
+
+    difficulty_slides = {"easy": 4, "medium": 6, "hard": 8}.get(difficulty, 6)
+    difficulty_minutes = {"easy": 10, "medium": 14, "hard": 18}.get(difficulty, 14)
+
+    sections.append(OutlineSection(
+        id=str(len(sections) + 1),
+        title=f"{topic}：核心内容（{style_hint}）",
+        bullets=[
+            f"围绕『{topic}』的核心概念展开",
+            f"采用「{style_hint}」形式呈现",
+            f"难度定位：{difficulty}",
+            "结合学生已有知识递进讲解",
+        ],
+        duration_minutes=difficulty_minutes,
+        slide_count=difficulty_slides,
+    ))
+
+    # 4. 重点剖析（仅在 GPS 提取到 key_points 时展开）
+    if key_points:
+        sections.append(OutlineSection(
+            id=str(len(sections) + 1),
+            title=f"{topic}：重点剖析",
+            bullets=[f"重点 {i+1}：{kp}" for i, kp in enumerate(key_points[:3])],
             duration_minutes=8,
             slide_count=4,
-        ),
-        OutlineSection(
-            id="3",
-            title="阿基米德原理",
-            bullets=["实验：测量石块浸没水中时弹簧测力计示数变化", "结论：F浮 = G排 = ρ液 g V排", "推导过程动画"],
-            duration_minutes=15,
-            slide_count=7,
-        ),
-        OutlineSection(
-            id="4",
-            title="浮力的应用",
-            bullets=["轮船：排水量与载重", "潜水艇：改变自身重力", "热气球：浮力原理"],
-            duration_minutes=7,
-            slide_count=4,
-        ),
-        OutlineSection(
-            id="5",
-            title="课堂小结与练习",
-            bullets=["核心公式回顾", "3 道典型例题", "课后作业布置"],
-            duration_minutes=5,
-            slide_count=3,
-        ),
-    ]
+        ))
+
+    # 5. 课堂练习（始终存在）
+    sections.append(OutlineSection(
+        id=str(len(sections) + 1),
+        title="课堂练习与即时反馈",
+        bullets=[
+            f"2–3 道与{topic}相关的典型例题",
+            "学生独立思考 + 同伴互评",
+            "教师巡视，针对性答疑",
+        ],
+        duration_minutes=8,
+        slide_count=4,
+    ))
+
+    # 6. 小结与作业（始终存在）
+    sections.append(OutlineSection(
+        id=str(len(sections) + 1),
+        title="课堂小结与作业",
+        bullets=[
+            f"回顾{topic}的核心要点",
+            "梳理本节课的知识脉络",
+            "布置分层作业（基础 + 拓展）",
+        ],
+        duration_minutes=4,
+        slide_count=2,
+    ))
+
     return OutlineResponse(
-        title=f"{req.grade} {req.subject}：{req.topic}",
-        subject=req.subject,
-        grade=req.grade,
+        title=f"{grade} {subject}：{topic}",
+        subject=subject,
+        grade=grade,
         sections=sections,
         total_slides=sum(s.slide_count for s in sections),
         total_duration_minutes=sum(s.duration_minutes for s in sections),
