@@ -1,2 +1,2 @@
-// services: API / SSE 进度推送 — Axios + TanStack Query
-export {};
+// services/index.ts — API 客户端
+export * from "./api";

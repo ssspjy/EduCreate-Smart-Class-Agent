@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, exports, knowledge, lessons, materials, teachers
+from app.api.v1 import auth, exports, gps, knowledge, lessons, materials, quality, teachers
 
 api_router = APIRouter()
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
@@ -11,3 +11,5 @@ api_router.include_router(materials.router, prefix="/materials", tags=["material
 api_router.include_router(lessons.router, prefix="/lessons", tags=["lessons"])
 api_router.include_router(knowledge.router, prefix="/knowledge", tags=["knowledge"])
 api_router.include_router(exports.router, prefix="/exports", tags=["exports"])
+api_router.include_router(gps.router, prefix="/gps", tags=["gps"])
+api_router.include_router(quality.router, prefix="/quality", tags=["quality"])

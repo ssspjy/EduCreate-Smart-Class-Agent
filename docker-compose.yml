@@ -16,9 +16,9 @@ services:
     environment:
       - APP_NAME=EduCreate Smart Class Agent
       - APP_VERSION=0.1.0
-      - CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost
+      - CORS_ORIGINS=["http://localhost:5173","http://127.0.0.1:5173","http://localhost","http://frontend:80"]
     healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:8000/health"]
+      test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
       interval: 10s
       timeout: 3s
       retries: 5

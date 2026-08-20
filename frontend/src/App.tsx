@@ -1,31 +1,29 @@
-import { Routes, Route, Link } from "react-router-dom";
+// App.tsx — 师创智课教师工作台入口
+import { Routes, Route, Navigate } from "react-router-dom";
 import "./App.css";
+import UploadPage from "./pages/UploadPage";
+import ClarifyPage from "./pages/ClarifyPage";
+import OutlinePage from "./pages/OutlinePage";
+import PreviewPage from "./pages/PreviewPage";
+import QualityPage from "./pages/QualityPage";
+import { useWorkflowStore } from "./stores/workflow";
 
 function Dashboard() {
+  const { currentStep } = useWorkflowStore();
   return (
     <div className="page">
       <h1>师创智课 · 教师工作台</h1>
       <p className="subtitle">教师从"事务型"工作者转向"设计型"导师。</p>
+      <p className="subtitle" style={{ marginTop: 8, color: "#888", fontSize: 14 }}>
+        当前流程：上传 → 意图澄清 → 大纲生成 → 预览导出 → 质量检测
+      </p>
       <nav className="nav">
-        <Link to="/courses">课程空间</Link>
-        <Link to="/co-create">AI 共创</Link>
-        <Link to="/quality">质量中心</Link>
-        <Link to="/health">健康检查</Link>
+        <a href="/upload">课程共创</a>
+        <a href="/quality">质量中心</a>
+        <a href="/health">健康检查</a>
       </nav>
     </div>
   );
-}
-
-function CoursesPage() {
-  return <div className="page"><h1>课程空间</h1><p>占位</p></div>;
-}
-
-function CoCreatePage() {
-  return <div className="page"><h1>AI 共创</h1><p>占位</p></div>;
-}
-
-function QualityPage() {
-  return <div className="page"><h1>质量中心</h1><p>占位</p></div>;
 }
 
 function HealthPage() {
@@ -50,10 +48,13 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<Dashboard />} />
-      <Route path="/courses" element={<CoursesPage />} />
-      <Route path="/co-create" element={<CoCreatePage />} />
+      <Route path="/upload" element={<UploadPage />} />
+      <Route path="/clarify" element={<ClarifyPage />} />
+      <Route path="/outline" element={<OutlinePage />} />
+      <Route path="/preview" element={<PreviewPage />} />
       <Route path="/quality" element={<QualityPage />} />
       <Route path="/health" element={<HealthPage />} />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }

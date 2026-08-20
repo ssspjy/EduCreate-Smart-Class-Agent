@@ -4,13 +4,12 @@
 
 ## 项目简介
 
-面向教师的"备课—课堂—反馈"全流程智能体，支持：
-- 教学材料解析（PDF / Word / PPT / 图片 / 视频）
+面向教师的"智能备课"Web 应用，支持：
+- 教学材料解析（PDF / Word / PPT）
 - 多轮对话澄清教学意图（GPS 模块）
 - 课件与教案生成（PPTAgent 模块）
-- 课堂互动内容生成（动画 / 小游戏）
-- 知识库检索增强（BGE-M3 + pgvector + ColPali）
-- 迭代优化与导出（.pptx / .docx / html5）
+- 知识库检索增强（BGE-M3 + pgvector）
+- 迭代优化与导出（.pptx / .docx）
 
 完整设计见 [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)。
 
@@ -22,6 +21,8 @@ EduCreate-Smart-Class-Agent/
 ├── frontend/                      # React + Vite + TS 前端（按 §3.1 文档对齐）
 ├── docs/
 │   └── ARCHITECTURE.md            # 架构文档（设计源）
+├── scripts/
+│   └── push.ps1                   # 一键 git add + commit + push 脚本
 ├── docker-compose.yml             # 一键启动
 ├── 技术栈.md                       # 技术栈清单
 ├── 任务要求.md                     # 比赛任务说明
@@ -40,7 +41,7 @@ EduCreate-Smart-Class-Agent/
 | LLM | DeepSeek / Qwen（通过 LangChain 适配）|
 | Embedding | BGE-M3 + ColPali（视觉检索）|
 | 重排 | bge-reranker-v2-m3 |
-| 实时通信 | WebTransport 主通道 + WebSocket / SSE 降级 |
+| 实时通信 | REST API 主通道 + SSE（Server-Sent Events）|
 | 容器化 | Docker Compose |
 
 ## 快速开始
@@ -106,17 +107,21 @@ npm run dev
 ## 当前阶段
 
 ✅ 已完成
-- [x] 项目骨架（frontend + backend）
-- [x] 后端 6 个 API 路由占位
-- [x] 前端 11 个模块目录占位
+- [x] 项目骨架（frontend + backend 双端）
+- [x] 后端 6 个 API 路由占位（auth / teachers / materials / lessons / knowledge / exports）
+- [x] 前端 10 个模块目录占位（features / stores / pages / components / flow / charts / preview / quality / ppt-export / services）
+- [x] 后端 14 个服务层文件骨架（gps / pptagent / rag / llm / parsers / generators）
 - [x] Docker Compose 一键启动
 - [x] README + .env.example
+- [x] 一键推送脚本 `scripts/push.ps1`
+- [x] 架构文档 `docs/ARCHITECTURE.md`
+- [x] .gitignore 含外部参考材料 `基础/`
 
-⏳ 进行中
+⏳ 进行中（服务层骨架就绪，业务逻辑待填）
 - [ ] PostgreSQL + pgvector 接入
 - [ ] BGE-M3 嵌入服务接入
-- [ ] GPS 教学意图结构化提取
-- [ ] PPTAgent outline 生成 + 编辑 actions
+- [ ] GPS 教学意图结构化提取（gps/clarifier + reasoner + dag_builder）
+- [ ] PPTAgent outline 生成 + 编辑 actions（pptagent/outliner + editor）
 - [ ] 课件 PptxGenJS 浏览器侧直出
 - [ ] 教案 python-docx 生成
 - [ ] 互动内容 Jinja2 模板生成
