@@ -96,18 +96,18 @@ def test_rejects_unsupported_upload_extension(client: TestClient) -> None:
 
 def test_generate_lesson_persists_workspace(client: TestClient) -> None:
     response = client.post(
-        "/api/v1/lessons/generate",
-        json={"subject": "物理", "grade": "初中三年级", "topic": "浮力"},
+        "/api/v1/lessons",
+        json={"title": "教案-测试", "subject": "物理", "grade": "初中三年级", "topic": "浮力"},
     )
 
     assert response.status_code == 200
     lesson = response.json()
-    assert lesson["lesson_id"]
+    assert lesson["id"]
     assert lesson["status"] == "draft"
 
     lessons = client.get("/api/v1/lessons")
     assert lessons.status_code == 200
-    assert any(item["id"] == lesson["lesson_id"] for item in lessons.json())
+    assert any(item["id"] == lesson["id"] for item in lessons.json())
 
 
 def test_upload_file_is_stored_inside_test_runtime(client: TestClient) -> None:

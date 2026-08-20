@@ -65,9 +65,9 @@ docker compose up --build
 | 端点 | 地址 |
 |------|------|
 | 前端 SPA | http://localhost:5173 |
-| 后端 API | http://localhost:8000 |
-| 后端交互式文档 | http://localhost:8000/docs |
-| 健康检查 | http://localhost:8000/health |
+| 后端 API | http://localhost:8001 |
+| 后端交互式文档 | http://localhost:8001/docs |
+| 健康检查 | http://localhost:8001/health |
 
 ### 方式二：本地开发模式
 
@@ -85,7 +85,7 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 source .venv/bin/activate
 
 pip install -r requirements.txt
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
 ```
 
 验证：
@@ -125,7 +125,7 @@ npm audit
 | `gps` | `/api/v1/gps` | 教学意图澄清 |
 | `quality` | `/api/v1/quality` | 大纲质量检测 |
 
-详见 `http://localhost:8000/docs`。
+详见 `http://localhost:8001/docs`。
 
 ## 当前阶段
 
@@ -148,6 +148,7 @@ npm audit
 - [x] 参考资料安全上传落盘（UUID 目录、扩展名白名单、大小限制）
 - [x] PDF / DOCX / PPTX 文本解析并写入 chunks
 - [x] 图片 / 视频上传保存，但不伪造 OCR/字幕内容，等待后续 OCR / Whisper 接入
+- [x] **阶段一完成**：意图澄清页面（ClarifyPage）完整实现，含 DAG 可视化、追问建议、提交后 session_id 持久化、GPT-4o 预览能力、Ant Design 五步进度条、Vite 代理端口修正（8001）
 
 ⏳ 进行中（服务层骨架就绪，业务逻辑待填）
 - [ ] PostgreSQL + pgvector 接入（替换当前 SQLite 默认开发库）

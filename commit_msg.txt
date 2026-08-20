@@ -1,0 +1,17 @@
+feat(阶段一): 完成意图澄清页面与 GPS 服务层
+
+后端:
+- gps/clarifier: 实现 DeepSeek LLM 结构化提取教学意图(subject/grade/topic/knowledge_points/teaching_activities/difficulties)
+- gps/dag_builder: 从意图构建教学知识 DAG 并存储 lesson_irs 表
+- llm/provider: LLM 抽象层支持 DeepSeek / GPT-4o / 模拟三种模式, 带 streaming 回调
+- gps API 路由: 澄清轮询 session_id 管理, 返回结构化 result + needs_more_info + suggestion
+- 新增 test_gps.py / test_llm.py
+
+前端:
+- ClarifyPage: 完整工作流含 DAG 可视化(GpsDag)、追问建议、分步进度条、session_id 持久化
+- GpsDag.tsx: React Flow 实现教学知识 DAG 节点图, 节点可折叠
+- 修复 Vite 代理端口 8000->8001 与后端对齐
+- api.ts: clarify 方法适配新 GPS API 响应格式
+
+文档:
+- README.md: 同步端口改为 8001, 添加阶段一完成标记

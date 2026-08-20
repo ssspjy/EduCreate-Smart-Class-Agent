@@ -44,6 +44,33 @@ export interface ChatMessage {
   content: string;
 }
 
+// ── DAG 类型 ──────────────────────────────────────────────────────────────────
+
+export interface DagNodeData {
+  label: string;
+  value: string | string[];
+  type: "root" | "slot_filled" | "slot_missing" | "dialogue";
+  level: number;
+  is_filled: boolean;
+  new_in_round: boolean;
+  source_turn: number;
+}
+
+export interface DagMeta {
+  filled_count: number;
+  missing_count: number;
+  total_slots: number;
+  completion: number;
+  dialogue_count: number;
+  dialogue_collapsed: boolean;
+}
+
+export interface DagGraph {
+  nodes: Array<{ id: string; type: string; position: { x: number; y: number }; data: DagNodeData; style?: Record<string, string> }>;
+  edges: Array<{ id: string; source: string; target: string; label?: string; animated?: boolean }>;
+  meta: DagMeta;
+}
+
 // ── Lesson 类型 ───────────────────────────────────────────────────────────────
 
 export interface Lesson {
@@ -284,6 +311,24 @@ export const apiExportPPTX = (outline: Outline): Promise<{ url: string }> =>
   apiFetch<{ url: string }>("/exports/pptx", {
     method: "POST",
     body: JSON.stringify(outline),
+  });
+
+// ── GPS DAG ────────────────────────────────────────────────────────────────────
+
+/** 获取澄清会话的 DAG 可视化数据 */
+export const apiGetSessionDag = (sessionId: string): Promise<DagGraph> =>
+  apiFetch<DagGraph>(`/gps/session/${sessionId}/dag`);
+
+/** 重置澄清会话（清空对话历史） */
+export const apiResetGpsSession = (sessionId: string): Promise<{ status: string; session_id: string }> =>
+  apiFetch<{ status: string; session_id: string }>(`/gps/session/${sessionId}/reset`, {
+    method: "POST",
+  });
+
+/** 删除澄清会话 */
+export const apiDeleteGpsSession = (sessionId: string): Promise<{ status: string; session_id: string }> =>
+  apiFetch<{ status: string; session_id: string }>(`/gps/session/${sessionId}`, {
+    method: "DELETE",
   });
 
 // ── 质检 ─────────────────────────────────────────────────────────────────────

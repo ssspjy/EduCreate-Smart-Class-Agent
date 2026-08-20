@@ -33,5 +33,6 @@ def test_openapi_docs_ok(client: TestClient) -> None:
     paths = response.json()["paths"]
     assert "/health" in paths
     assert "/api/v1/auth/login" in paths
-    assert "/api/v1/lessons/generate" in paths
+    assert "/api/v1/lessons" in paths
+    assert "/api/v1/lessons/outline" in paths
     assert "/api/v1/knowledge/search" in paths
