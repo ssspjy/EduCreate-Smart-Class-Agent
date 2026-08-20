@@ -12,10 +12,11 @@ import {
   Divider,
   message,
   Steps,
+  Alert,
 } from "antd";
 import { SendOutlined, LeftOutlined, RightOutlined } from "@ant-design/icons";
 import { useWorkflowStore } from "../stores/workflow";
-import { apiClarify } from "../services/api";
+import { apiClarify, type ClarifyResponse } from "../services/api";
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -44,10 +45,11 @@ export default function ClarifyPage() {
     setHistory((h) => [...h, userMsg]);
     setLoading(true);
     try {
-      const result = await apiClarify(
+      const resp: ClarifyResponse = await apiClarify(
         query,
         materials.map((m) => m.file_id)
       );
+      const result = resp.result;
       setGpsResult(result);
       setHistory((h) => [
         ...h,
@@ -56,11 +58,21 @@ export default function ClarifyPage() {
           content: `已解析：${result.subject} · ${result.grade} · ${result.topic}`,
         },
       ]);
+      // 如果还有缺失槽位，展示追问建议
+      if (resp.needs_more_info && resp.suggestion) {
+        setHistory((h) => [
+          ...h,
+          {
+            role: "assistant",
+            content: resp.suggestion!,
+          },
+        ]);
+      }
       setQuery("");
     } catch (e: unknown) {
       const errMsg = e instanceof Error ? e.message : "澄清失败";
       message.error(errMsg);
-      setHistory((h) => h.slice(0, -1)); // 回滚 user 消息
+      setHistory((h) => h.slice(0, -1));
     } finally {
       setLoading(false);
     }
