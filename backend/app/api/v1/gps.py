@@ -3,16 +3,19 @@
 文档 §3.2 API/v1/gps.py：多轮对话澄清 + 结构化提取。
 """
 
+from __future__ import annotations
+
 from fastapi import APIRouter
 from pydantic import BaseModel
+from typing import Optional
 
 router = APIRouter()
 
 
 class ClarifyRequest(BaseModel):
     """澄清请求（首次 or 多轮）。"""
-    query: str | None = None          # 首次调用
-    messages: list[dict[str, str]] | None = None  # 多轮历史
+    query: Optional[str] = None       # 首次调用
+    messages: Optional[list[dict[str, str]]] = None  # 多轮历史
     materials: list[str] = []         # 已上传文件 ID 列表
 
 

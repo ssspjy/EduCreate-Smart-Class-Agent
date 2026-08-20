@@ -4,13 +4,16 @@
 后续接入 jose / passlib 后实现完整登录与鉴权。
 """
 
+from __future__ import annotations
+
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
+from typing import Optional
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
 
-async def require_user(token: str | None = Depends(oauth2_scheme)) -> dict[str, str]:
+async def require_user(token: Optional[str] = Depends(oauth2_scheme)) -> dict[str, str]:
     """占位依赖：校验 Bearer Token。当前未配置 JWT 颁发，恒返回占位用户。"""
     if not token:
         raise HTTPException(

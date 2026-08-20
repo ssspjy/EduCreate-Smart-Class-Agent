@@ -1,5 +1,6 @@
 // pages/OutlinePage.tsx — 步骤 3：生成 PPT 大纲
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Button,
   Card,
@@ -23,6 +24,12 @@ const { Title, Text } = Typography;
 export default function OutlinePage() {
   const { gpsResult, outline, setOutline, setCurrentStep } = useWorkflowStore();
   const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
+
+  const goToStep = (step: "clarify" | "preview", path: string) => {
+    setCurrentStep(step);
+    navigate(path);
+  };
 
   const handleGenerate = async () => {
     if (!gpsResult) return;
@@ -145,13 +152,13 @@ export default function OutlinePage() {
 
           <Divider />
           <Space>
-            <Button icon={<LeftOutlined />} onClick={() => setCurrentStep("clarify")}>
+            <Button icon={<LeftOutlined />} onClick={() => goToStep("clarify", "/clarify")}>
               上一步
             </Button>
             <Button
               type="primary"
               icon={<RightOutlined />}
-              onClick={() => setCurrentStep("preview")}
+              onClick={() => goToStep("preview", "/preview")}
             >
               下一步：预览课件
             </Button>

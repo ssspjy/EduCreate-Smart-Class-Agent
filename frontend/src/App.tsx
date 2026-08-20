@@ -1,5 +1,5 @@
 // App.tsx — 师创智课教师工作台入口
-import { Routes, Route, Navigate } from "react-router-dom";
+import { Routes, Route, Navigate, Link } from "react-router-dom";
 import "./App.css";
 import UploadPage from "./pages/UploadPage";
 import ClarifyPage from "./pages/ClarifyPage";
@@ -10,17 +10,25 @@ import { useWorkflowStore } from "./stores/workflow";
 
 function Dashboard() {
   const { currentStep } = useWorkflowStore();
+  const stepLabel = {
+    upload: "上传资料",
+    clarify: "意图澄清",
+    outline: "大纲生成",
+    preview: "预览导出",
+    quality: "质量检测",
+  }[currentStep];
+
   return (
     <div className="page">
       <h1>师创智课 · 教师工作台</h1>
       <p className="subtitle">教师从"事务型"工作者转向"设计型"导师。</p>
       <p className="subtitle" style={{ marginTop: 8, color: "#888", fontSize: 14 }}>
-        当前流程：上传 → 意图澄清 → 大纲生成 → 预览导出 → 质量检测
+        当前步骤：{stepLabel} · 上传 → 意图澄清 → 大纲生成 → 预览导出 → 质量检测
       </p>
       <nav className="nav">
-        <a href="/upload">课程共创</a>
-        <a href="/quality">质量中心</a>
-        <a href="/health">健康检查</a>
+        <Link to="/upload">课程共创</Link>
+        <Link to="/quality">质量中心</Link>
+        <Link to="/health">健康检查</Link>
       </nav>
     </div>
   );

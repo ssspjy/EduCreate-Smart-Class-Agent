@@ -43,10 +43,10 @@ export interface QualityReport {
 
 // --- API 调用 ---
 
-const BASE = "/api/v1";
+const API_BASE = (import.meta.env.VITE_API_BASE || "/api/v1").replace(/\/$/, "");
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
+  const res = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
@@ -64,8 +64,14 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 export const apiUploadMaterial = (file: File): Promise<Material> => {
   const form = new FormData();
   form.append("file", file);
-  return fetch(`${BASE}/materials/upload`, { method: "POST", body: form }).then(
-    (r) => r.json() as Promise<Material>
+  return fetch(`${API_BASE}/materials/upload`, { method: "POST", body: form }).then(
+    async (r) => {
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({ detail: r.statusText }));
+        throw new Error(err.detail || `HTTP ${r.status}`);
+      }
+      return r.json() as Promise<Material>;
+    }
   );
 };
 

@@ -1,5 +1,6 @@
 // pages/ClarifyPage.tsx — 步骤 2：GPS 教学意图澄清
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Button,
   Card,
@@ -30,6 +31,12 @@ export default function ClarifyPage() {
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState<ChatMessage[]>([]);
+  const navigate = useNavigate();
+
+  const goToStep = (step: "upload" | "outline", path: string) => {
+    setCurrentStep(step);
+    navigate(path);
+  };
 
   const handleSubmit = async () => {
     if (!query.trim()) return;
@@ -160,7 +167,7 @@ export default function ClarifyPage() {
       <Space>
         <Button
           icon={<LeftOutlined />}
-          onClick={() => setCurrentStep("upload")}
+          onClick={() => goToStep("upload", "/upload")}
         >
           上一步
         </Button>
@@ -168,7 +175,7 @@ export default function ClarifyPage() {
           type="primary"
           icon={<RightOutlined />}
           disabled={!gpsResult}
-          onClick={() => setCurrentStep("outline")}
+          onClick={() => goToStep("outline", "/outline")}
         >
           下一步：生成大纲
         </Button>

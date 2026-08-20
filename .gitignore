@@ -6,6 +6,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .mypy_cache/
+*.tsbuildinfo
 
 # 构建产物
 backend/dist/

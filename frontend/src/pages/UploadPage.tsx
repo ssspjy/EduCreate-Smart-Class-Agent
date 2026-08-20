@@ -1,5 +1,6 @@
 // pages/UploadPage.tsx — 步骤 1：上传参考资料
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Upload, Button, List, message, Typography } from "antd";
 import { InboxOutlined, DeleteOutlined, RightOutlined } from "@ant-design/icons";
 import { useWorkflowStore } from "../stores/workflow";
@@ -11,6 +12,7 @@ const { Dragger } = Upload;
 export default function UploadPage() {
   const { materials, addMaterial, setCurrentStep } = useWorkflowStore();
   const [uploading, setUploading] = useState(false);
+  const navigate = useNavigate();
 
   const handleUpload = async (file: File) => {
     setUploading(true);
@@ -28,14 +30,18 @@ export default function UploadPage() {
   };
 
   const canProceed = materials.length > 0;
+  const goNext = () => {
+    setCurrentStep("clarify");
+    navigate("/clarify");
+  };
 
   return (
     <div className="page">
       <Title level={3}>步骤 1 / 5：上传参考资料</Title>
-      <Text type="secondary">上传 PDF、Word 或 PPT，系统将解析内容用于后续生成。</Text>
+      <Text type="secondary">上传 PDF、Word、PPT、图片或视频，系统将解析内容用于后续生成。</Text>
 
       <Dragger
-        accept=".pdf,.doc,.docx,.ppt,.pptx"
+        accept=".pdf,.doc,.docx,.ppt,.pptx,.png,.jpg,.jpeg,.mp4"
         showUploadList={false}
         beforeUpload={handleUpload}
         disabled={uploading}
@@ -78,7 +84,7 @@ export default function UploadPage() {
         type="primary"
         icon={<RightOutlined />}
         disabled={!canProceed}
-        onClick={() => setCurrentStep("clarify")}
+        onClick={goNext}
         style={{ marginTop: 24 }}
       >
         下一步：教学意图澄清

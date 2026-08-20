@@ -103,16 +103,24 @@
 | 子模块 | 职责 | 关键技术 |
 |---|---|---|
 | `pages/` | 教师工作台（上传、澄清、预览、导出） | React Router |
-| `components/` | 通用 UI、表单、布局 | Antd + shadcn/ui |
+| `components/` | 通用 UI、表单、布局 | Ant Design（shadcn/ui 可选扩展） |
 | `charts/` | DAG 可视化、质检雷达图 | ECharts |
 | `flow/` | 算法关系图、流程结构展示 | React Flow |
 | `features/` | 业务功能模块 | 业务组件 |
+| `features/voice-input/` | 教师语音输入、录音状态、转写结果确认 | Web Speech API + MediaRecorder fallback |
 | `services/` | API / SSE 进度推送 | Axios + TanStack Query |
 | `stores/` | 全局状态 | Zustand |
 | `state/` | 业务流程状态机 | **XState**（澄清 → 解析 → 蓝图 → 生成 → 质检 → 修改 → 导出） |
 | `preview/` | PDF 预览 | PDF.js |
 | `quality/` | 本地预检：布局、碰撞、文字密度 | Web Worker |
 | `ppt-export/` | PptxGenJS 浏览器侧生成 .pptx | PptxGenJS |
+
+**多模态输入界面落地方式**：
+
+- **文字输入**：澄清页保留 `TextArea`，每轮消息写入 `conversation_messages`，供 GPS Reasoner 提取槽位。
+- **语音输入**：前端优先使用浏览器 `SpeechRecognition` / `webkitSpeechRecognition` 做实时转写；不支持时退化为 `MediaRecorder` 录音上传，由后端 `faster-whisper` 转写。
+- **教师确认**：语音转写结果先进入可编辑输入框，教师确认后再提交给 GPS，避免识别错误直接污染 Lesson IR。
+- **状态反馈**：录音中、转写中、转写失败、权限拒绝四种状态必须在 UI 中显式提示。
 
 ### 3.2 后端 `backend/`
 
@@ -153,6 +161,26 @@ backend/
 └── requirements.txt
 ```
 
+### 3.2.1 LLM Provider 配置与兜底
+
+LLM 不直接散落在业务代码中调用，统一经过 `services/llm/provider.py`：
+
+| 配置项 | 示例 | 说明 |
+|---|---|---|
+| `LLM_PROVIDER` | `deepseek` | 主 provider，比赛版默认 DeepSeek |
+| `LLM_BASE_URL` | `https://api.deepseek.com` | OpenAI-compatible API base URL |
+| `LLM_API_KEY` | `${DEEPSEEK_API_KEY}` | 仅走环境变量，不入仓 |
+| `LLM_MODEL` | `deepseek-chat` / `deepseek-reasoner` | GPS、PPTAgent 可按任务切模型 |
+| `LLM_TIMEOUT_SECONDS` | `60` | 单次调用超时 |
+| `LLM_MAX_RETRIES` | `2` | 网络错误或 5xx 自动重试 |
+
+**调用策略**：
+
+1. GPS 槽位提取、动态追问、参考资料指代识别均要求 Structured Output，并通过 Pydantic / JSON Schema 校验。
+2. PPTAgent 的 outline / slide JSON / edit request rewrite 必须经过 schema 校验，不合格时要求 LLM 自修正一次。
+3. 主 provider 不可用时，按 `LLM_FALLBACK_PROVIDER` 切到兼容 OpenAI API 的备用模型；若备用模型也失败，降级为模板化占位内容，并在前端提示教师稍后重试。
+4. 所有 LLM 输入输出写入 Langfuse trace，敏感字段和上传文件原文按脱敏策略截断。
+
 ### 3.3 PPT 生成策略
 
 > **工程风险提示**：PPTX ↔ HTML 双向保真是本项目最大的技术风险。文档采用 PptxGenJS 浏览器侧直出策略，避免来回转换：
@@ -182,6 +210,49 @@ backend/
 | PPT (pptx) | python-pptx 提取幻灯片文本 + slide_idx | `chunks` (slide 级) |
 | 图片 (png/jpg) | PaddleOCR + OpenCV 预处理 + 图像特征 | `chunks` (caption + bbox + 图像向量) |
 | 视频 (mp4) | FFmpeg 抽关键帧 → OpenCV 帧处理 → faster-whisper 音频转写 + Qwen2-VL 描述 | `chunks` (帧级 + 时间戳 + 字幕) |
+
+### 3.5.1.1 解析流水线
+
+上传不是只保存文件，而是进入统一解析任务：
+
+```
+POST /api/v1/materials/upload
+        ↓
+materials.status = uploaded
+        ↓
+Celery parse_material_job(material_id)
+        ↓
+parser dispatch by mime
+        ↓
+chunks + metadata + storage_path 写入 PostgreSQL / MinIO
+        ↓
+BGE-M3 embedding + pgvector upsert
+        ↓
+materials.status = parsed / failed
+        ↓
+SSE 推送解析进度给前端
+```
+
+每个 parser 至少返回统一结构：
+
+```json
+{
+  "material_id": "uuid",
+  "chunks": [
+    {
+      "chunk_index": 0,
+      "content": "片段文本或字幕",
+      "page_ref": 3,
+      "bbox": [100, 120, 380, 210],
+      "media_ref": "minio://materials/xxx/page-3.png",
+      "modality": "text"
+    }
+  ],
+  "warnings": []
+}
+```
+
+前端在上传页展示 `uploaded / parsing / parsed / failed`，并允许教师打开解析结果预览后再做指代绑定。
 
 ### 3.5.2 指代绑定 — Reference Resolution
 
@@ -452,6 +523,38 @@ end
 
 错误分类：SYNTAX（JSON 格式错误）/ LAYOUT（布局超出边界）/ IMAGE（图片 URL 失效）/ TEXT（文字溢出）/ OVERFLOW（内容超出页面）。
 
+### 5.6.1 教师修改意见 → 再生成闭环
+
+比赛要求的迭代优化不只依赖自动 self-correction，还需要教师反馈闭环：
+
+```
+教师在预览页提交修改意见
+        ↓
+edit_requests 记录原文、目标页、目标元素、当前 artifact 版本
+        ↓
+LLM 将自然语言改写为结构化 edit action
+        ↓
+PPTAgent Editor 应用到 Lesson IR / slide JSON
+        ↓
+PptxGenJS 重新渲染受影响页面
+        ↓
+PPTEVAL 局部复检
+        ↓
+生成新 artifact version，教师确认或继续修改
+```
+
+支持的首批修改意图：
+
+| 教师说法 | 结构化动作 | 处理范围 |
+|---|---|---|
+| "调整顺序" | `reorder_sections` / `reorder_slides` | outline + slide JSON |
+| "简化某页" | `compress_text` | 单页文本 |
+| "增加一个案例" | `insert_example` | RAG 检索 + 单页或章节 |
+| "换成更活泼的风格" | `restyle_slide` | 单页或整套主题 token |
+| "加一个互动题" | `insert_interactive` | 互动模板 + PPT 占位 |
+
+每次修改都保留版本号，教师可回退到上一版，避免一次再生成覆盖已满意内容。
+
 ### 5.7 PPTEVAL 评估
 
 三维评分（1-5 分），用 Qwen2-VL 做多模态 judge：
@@ -568,9 +671,12 @@ generated_artifacts  edit_requests       rag_evidences
 id (PK)              id (PK)            id (PK)
 job_id (FK)          lesson_id (FK)     lesson_ir_id (FK)
 type (pptx/docx)     instruction (text)  material_id (FK)
-storage_path         status             page_ref (int)
-created_at           created_at         bbox (jsonb)
-                     resolved_at         excerpt (text)
+version              target_page        page_ref (int)
+storage_path         status             bbox (jsonb)
+created_at           action_json        excerpt (text)
+                     from_artifact_id   usage
+                     created_at         slot_binding
+                     resolved_at
 ```
 
 **说明**：
@@ -580,6 +686,8 @@ created_at           created_at         bbox (jsonb)
 - `rag_evidences.bbox` 为 JSONB，存页内坐标区域
 - `lesson_irs.slots` / `dag_snapshot` 使用 JSONB 内联（去掉了 dag_nodes / dag_edges 独立表）
 - `generation_jobs.output_json` 内联 PPT 生成结果（去掉了 ppt_outlines / ppt_versions 独立表）
+- `generated_artifacts.version` 与 `edit_requests.from_artifact_id` 支持教师修改后的版本回退
+- `edit_requests.action_json` 存 LLM 改写后的结构化编辑动作，便于复现和审计
 - Alembic 管理 schema 版本迁移
 
 ---
@@ -595,6 +703,7 @@ created_at           created_at         bbox (jsonb)
 | PDF 预览 | **PDF.js** | 浏览器内交互式 PDF 阅读器 |
 | 状态管理 | Zustand + TanStack Query + **XState** | XState 管业务流程状态机（澄清→生成→质检→修改→导出） |
 | 表单 | React Hook Form + Zod | 性能 + 类型化校验 |
+| 语音输入 | Web Speech API + MediaRecorder + faster-whisper fallback | 满足文字/语音双输入，兼容浏览器能力差异 |
 | 前端测试 | **Vitest** | 单元测试、覆盖测试 |
 | 后端框架 | **FastAPI** + Gunicorn + Uvicorn | 高性能异步，OpenAPI 自文档 |
 | ORM | SQLAlchemy 2.x | 支持多种数据库，async 支持 |
@@ -609,8 +718,8 @@ created_at           created_at         bbox (jsonb)
 | 视觉检索 | **ColPali**（PDF / PPT 页面图像细粒度视觉检索） | 图像型资料的语义定位 |
 | 重排 | **bge-reranker-v2-m3** | 检索后重排序，提升相关性 |
 | 检索策略 | 混合全双工搜索（全文 + 向量 + rerank） | 双层答案匹配，兼顾精确与语义 |
-| LLM 框架 | **LangChain** + DeepSeek | 构建复杂 Agent、工作流、工具调用 |
-| LLM 调用 | DeepSeek（推理）+ **Function Calling** + **Structured Output** | 结构化输出，确保 JSON Schema 合规 |
+| LLM 框架 | **LangChain** + provider 抽象层 | 构建复杂 Agent、工作流、工具调用 |
+| LLM 调用 | DeepSeek 主模型 + OpenAI-compatible fallback + **Structured Output** | 结构化输出，确保 JSON Schema 合规 |
 | 可观测性 | **Langfuse** | 监控、追踪 LLM 应用，评估输出 |
 | 视觉质检 | **Qwen2-VL**（多模态 judge） | PPTEVAL Content/Design/Coherence 评分 |
 | PPT 操作 | **浏览器侧 PptxGenJS** | 避免 PPTX↔HTML 双向转换工程风险 |
@@ -636,7 +745,7 @@ created_at           created_at         bbox (jsonb)
 
 | 项 | 决策 | 说明 |
 |---|---|---|
-| LLM 后端 | **DeepSeek**（已锁定） | `services/llm/` 抽象层预留多 provider 接口 |
+| LLM 后端 | **DeepSeek 主用，OpenAI-compatible provider 兜底** | `services/llm/` 统一配置、重试、schema 校验、fallback |
 | 多租户 | 单租户起步 | 后续按需扩展 |
 
 ---

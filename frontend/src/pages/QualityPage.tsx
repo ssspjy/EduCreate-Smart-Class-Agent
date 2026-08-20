@@ -1,10 +1,10 @@
 // pages/QualityPage.tsx — 步骤 5：质量检测与优化建议
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Button,
   Card,
   Typography,
-  Tag,
   Space,
   Divider,
   Spin,
@@ -29,6 +29,12 @@ export default function QualityPage() {
   const { outline, qualityReport, setQualityReport, setCurrentStep } =
     useWorkflowStore();
   const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
+
+  const goToStep = (step: "preview" | "upload", path: string) => {
+    setCurrentStep(step);
+    navigate(path);
+  };
 
   const handleCheck = async () => {
     if (!outline) return;
@@ -187,7 +193,7 @@ export default function QualityPage() {
 
           <Divider />
           <Space>
-            <Button icon={<LeftOutlined />} onClick={() => setCurrentStep("preview")}>
+            <Button icon={<LeftOutlined />} onClick={() => goToStep("preview", "/preview")}>
               上一步
             </Button>
             <Button
@@ -197,7 +203,7 @@ export default function QualityPage() {
             >
               重新质检
             </Button>
-            <Button type="primary" onClick={() => setCurrentStep("upload")}>
+            <Button type="primary" onClick={() => goToStep("upload", "/upload")}>
               从头开始
             </Button>
           </Space>

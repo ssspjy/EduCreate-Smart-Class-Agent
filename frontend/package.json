@@ -5,30 +5,30 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
-    "build": "tsc -b && vite build",
+    "build": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.node.json --noEmit && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "react-router-dom": "^6.27.0",
+    "@ant-design/icons": "^5.5.1",
     "@tanstack/react-query": "^5.59.0",
-    "zustand": "^5.0.0",
-    "xstate": "^5.18.0",
     "@xstate/react": "^5.0.0",
     "antd": "^5.21.0",
-    "echarts": "^5.5.1",
+    "echarts": "^6.1.0",
     "echarts-for-react": "^3.0.2",
-    "reactflow": "^11.11.4",
     "pdfjs-dist": "^4.7.76",
-    "pptxgenjs": "^3.12.0"
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^7.18.2",
+    "reactflow": "^11.11.4",
+    "xstate": "^5.18.0",
+    "zustand": "^5.0.0"
   },
   "devDependencies": {
+    "@types/node": "^22.7.5",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.0",
-    "@types/node": "^22.7.5",
-    "@vitejs/plugin-react": "^4.3.2",
+    "@vitejs/plugin-react": "^6.1.0",
     "typescript": "^5.6.2",
-    "vite": "^5.4.8"
+    "vite": "^8.2.2"
   }
 }

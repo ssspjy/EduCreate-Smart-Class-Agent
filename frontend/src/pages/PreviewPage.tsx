@@ -1,5 +1,6 @@
 // pages/PreviewPage.tsx — 步骤 4：课件预览与导出
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   Button,
   Card,
@@ -26,8 +27,13 @@ const { Title, Text, Paragraph } = Typography;
 export default function PreviewPage() {
   const { outline, setCurrentStep } = useWorkflowStore();
   const [pptxUrl, setPptxUrl] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const navigate = useNavigate();
+
+  const goToStep = (step: "outline" | "quality", path: string) => {
+    setCurrentStep(step);
+    navigate(path);
+  };
 
   const handleExport = async () => {
     if (!outline) return;
@@ -50,7 +56,7 @@ export default function PreviewPage() {
         <Title level={3}>步骤 4 / 5：预览课件</Title>
         <Text type="secondary">请先在"大纲生成"步骤生成 PPT 大纲。</Text>
         <div style={{ marginTop: 16 }}>
-          <Button onClick={() => setCurrentStep("outline")}>去生成大纲</Button>
+          <Button onClick={() => goToStep("outline", "/outline")}>去生成大纲</Button>
         </div>
       </div>
     );
@@ -151,13 +157,13 @@ export default function PreviewPage() {
 
       <Divider />
       <Space>
-        <Button icon={<LeftOutlined />} onClick={() => setCurrentStep("outline")}>
+        <Button icon={<LeftOutlined />} onClick={() => goToStep("outline", "/outline")}>
           上一步
         </Button>
         <Button
           type="primary"
           icon={<RightOutlined />}
-          onClick={() => setCurrentStep("quality")}
+          onClick={() => goToStep("quality", "/quality")}
         >
           下一步：质量检测
         </Button>
