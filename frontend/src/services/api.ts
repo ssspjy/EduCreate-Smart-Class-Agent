@@ -36,6 +36,7 @@ export interface ClarifyResponse {
   missing_slots: MissingSlot[];
   needs_more_info: boolean;
   suggestion: string | null;
+  session_id?: string | null;
 }
 
 export interface ChatMessage {
@@ -178,6 +179,7 @@ export const apiClarify = (
   materials: string[],
   lessonId?: string,
   sessionId?: string,
+  messages?: ChatMessage[],
 ): Promise<ClarifyResponse> =>
   apiFetch<ClarifyResponse>("/gps/clarify", {
     method: "POST",
@@ -186,6 +188,7 @@ export const apiClarify = (
       materials,
       lesson_id: lessonId ?? null,
       session_id: sessionId ?? null,
+      messages: messages ?? null,
     }),
   });
 

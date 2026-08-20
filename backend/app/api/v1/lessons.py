@@ -19,7 +19,7 @@ from app.schemas.lesson_ir import (
     TeachingSlots,
 )
 
-router = APIRouter(prefix="/lessons", tags=["lessons"])
+router = APIRouter(tags=["lessons"])
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────
@@ -302,7 +302,7 @@ class OutlineResponse(BaseModel):
 
 @router.post("/outline", response_model=OutlineResponse, summary="生成 PPT 大纲")
 async def generate_outline(
-    gps: GpsClarifyResult,
+    req: GpsClarifyResult,
     db: Session = Depends(get_db),
 ) -> OutlineResponse:
     """基于 GPS 澄清结果生成章节大纲。
@@ -347,9 +347,9 @@ async def generate_outline(
         ),
     ]
     return OutlineResponse(
-        title=f"{gps.grade} {gps.subject}：{gps.topic}",
-        subject=gps.subject,
-        grade=gps.grade,
+        title=f"{req.grade} {req.subject}：{req.topic}",
+        subject=req.subject,
+        grade=req.grade,
         sections=sections,
         total_slides=sum(s.slide_count for s in sections),
         total_duration_minutes=sum(s.duration_minutes for s in sections),

@@ -9,29 +9,20 @@ Schema 设计要点：
 - dag_snapshot: GPS 多轮对话历史（用于回溯和追问）
 - reference_materials: 参考资料绑定（RAG evidence 锚点）
 - version: 版本号，每轮修改自增，不覆盖旧版本
+
+枚举类型（DifficultyLevel、TeachingStyle）统一在 gps.py 中定义，
+lesson_ir.py 通过 from ..schemas.gps 复用，避免重复定义导致的类型不一致。
 """
 
 from datetime import datetime
-from enum import Enum
 from typing import Any, List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.gps import DifficultyLevel, TeachingStyle
 
-class DifficultyLevel(str, Enum):
-    """难度等级。"""
-
-    EASY = "easy"
-    MEDIUM = "medium"
-    HARD = "hard"
-
-
-class TeachingStyle(str, Enum):
-    """授课风格。"""
-
-    THEORY = "theory"       # 理论为主
-    INTERACTIVE = "interactive"  # 互动为主
-    EXPERIMENT = "experiment"   # 实验为主
+# Re-export for backward compatibility in case other modules import from here
+__all__ = ["DifficultyLevel", "TeachingStyle"]
 
 
 class DialogueTurn(BaseModel):

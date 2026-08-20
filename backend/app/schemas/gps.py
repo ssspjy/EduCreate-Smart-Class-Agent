@@ -18,11 +18,22 @@ from pydantic import BaseModel, Field
 
 
 class DifficultyLevel(str, Enum):
-    """难度等级（与 lesson_ir.py 保持一致）。"""
+    """难度等级（与 lesson_ir.py 保持一致）。
+
+    唯一定义源，所有模块从此处 import。
+    """
 
     EASY = "easy"
     MEDIUM = "medium"
     HARD = "hard"
+
+
+class TeachingStyle(str, Enum):
+    """授课风格（唯一定义源，所有模块从此处 import）。"""
+
+    THEORY = "theory"       # 理论为主
+    INTERACTIVE = "interactive"  # 互动为主
+    EXPERIMENT = "experiment"   # 实验为主
 
 
 class ChatMessage(BaseModel):
@@ -111,6 +122,10 @@ class ClarifyResponse(BaseModel):
     suggestion: Optional[str] = Field(
         default=None,
         description="追问建议话术（当 needs_more_info=True 时返回）",
+    )
+    session_id: Optional[str] = Field(
+        default=None,
+        description="澄清会话 ID（前端应持久化到 store，下次请求传入以恢复上下文）",
     )
 
 

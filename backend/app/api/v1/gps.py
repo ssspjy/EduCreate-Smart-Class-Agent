@@ -25,27 +25,52 @@ router = APIRouter()
 def _build_materials_context(
     db: Session,
     material_ids: list[str],
-    max_chars: int = 4000,
+    max_tokens: int = 3500,
 ) -> str:
-    """从 materials IDs 提取 chunks 内容，拼成上下文文本。"""
+    """从 materials IDs 提取 chunks 内容，拼成上下文文本。
+
+    按 token 估算截断（每个汉字约 ~1.5 token，英文约 ~0.25 token，
+    用 len(text) / 2 作为保守估算）。
+    优先取每份材料的前面 chunks（通常包含目录、摘要、重点章节）。
+    """
     if not material_ids:
         return ""
 
-    chunks_texts: list[str] = []
+    ESTIMATED_TOKENS_PER_CHAR = 2.0  # 保守估算：每个字符约 0.5 token，反向用 2 倍字符数估算 token
+
+    chunks_texts: list[tuple[int, str]] = []  # (estimated_tokens, text)
+    total_chars = 0
+
     for mid in material_ids:
         try:
             chunks = list_material_chunks(db, mid)
             for chunk in chunks:
                 text = chunk.content.strip()
-                if text:
-                    chunks_texts.append(f"[材料 {mid} 第{chunk.chunk_index + 1}段] {text}")
+                if not text:
+                    continue
+                prefix = f"[材料 {mid[:8]}... 第{chunk.chunk_index + 1}段]"
+                labeled = f"{prefix}\n{text}"
+                estimated = int(len(labeled) / ESTIMATED_TOKENS_PER_CHAR)
+                chunks_texts.append((estimated, labeled))
+                total_chars += len(labeled)
         except Exception:
             continue
 
-    full_text = "\n".join(chunks_texts)
-    if len(full_text) <= max_chars:
-        return full_text
-    return full_text[:max_chars] + f"\n...（共 {len(full_text)} 字，已截断）"
+    # 先累加到 max_tokens 限制
+    result_parts: list[str] = []
+    used_tokens = 0
+    for est, text in chunks_texts:
+        if used_tokens + est > max_tokens:
+            # 不再拆 chunk，直接截断当前累加结果
+            break
+        result_parts.append(text)
+        used_tokens += est
+
+    result = "\n\n".join(result_parts)
+    if result_parts and total_chars > sum(len(p) for _, p in chunks_texts[:len(result_parts)]):
+        skipped = total_chars - sum(len(p) for _, p in chunks_texts[:len(result_parts)])
+        result += f"\n\n...（省略约 {skipped} 字）"
+    return result
 
 
 @router.post("/clarify", response_model=ClarifyResponse, summary="GPS 教学意图澄清")
@@ -89,6 +114,7 @@ async def clarify(
         missing_slots=response.missing_slots,
         needs_more_info=response.needs_more_info,
         suggestion=response.suggestion,
+        session_id=session_id,
     )
 
 

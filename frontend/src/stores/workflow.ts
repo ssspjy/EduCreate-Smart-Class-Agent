@@ -28,6 +28,14 @@ interface WorkflowState {
   gpsResult: GpsClarifyResult | null;
   setGpsResult: (r: GpsClarifyResult | null) => void;
 
+  // 当前 lesson workspace ID（整个流程绑定同一个 lesson）
+  lessonId: string | null;
+  setLessonId: (id: string | null) => void;
+
+  // GPS 多轮会话 ID（用于跨请求追踪同一轮澄清上下文）
+  gpsSessionId: string | null;
+  setGpsSessionId: (id: string | null) => void;
+
   // PPT 大纲
   outline: Outline | null;
   setOutline: (o: Outline | null) => void;
@@ -56,6 +64,12 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
 
   gpsResult: null,
   setGpsResult: (r) => set({ gpsResult: r }),
+
+  lessonId: null,
+  setLessonId: (id) => set({ lessonId: id }),
+
+  gpsSessionId: null,
+  setGpsSessionId: (id) => set({ gpsSessionId: id }),
 
   outline: null,
   setOutline: (o) => set({ outline: o }),

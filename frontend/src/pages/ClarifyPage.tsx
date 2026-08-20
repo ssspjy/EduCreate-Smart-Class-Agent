@@ -1,5 +1,5 @@
 // pages/ClarifyPage.tsx — 步骤 2：GPS 教学意图澄清
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Button,
@@ -16,7 +16,7 @@ import {
 } from "antd";
 import { SendOutlined, LeftOutlined, RightOutlined } from "@ant-design/icons";
 import { useWorkflowStore } from "../stores/workflow";
-import { apiClarify, type ClarifyResponse } from "../services/api";
+import { apiClarify, apiCreateLesson, type ClarifyResponse } from "../services/api";
 
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -27,8 +27,16 @@ interface ChatMessage {
 }
 
 export default function ClarifyPage() {
-  const { materials, gpsResult, setGpsResult, setCurrentStep } =
-    useWorkflowStore();
+  const {
+    materials,
+    gpsResult,
+    setGpsResult,
+    setCurrentStep,
+    lessonId,
+    setLessonId,
+    gpsSessionId,
+    setGpsSessionId,
+  } = useWorkflowStore();
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [history, setHistory] = useState<ChatMessage[]>([]);
@@ -45,12 +53,29 @@ export default function ClarifyPage() {
     setHistory((h) => [...h, userMsg]);
     setLoading(true);
     try {
+      // 如果还没有 lessonId，先创建一个
+      let currentLessonId = lessonId;
+      if (!currentLessonId) {
+        const lesson = await apiCreateLesson({ title: `教案-${Date.now()}` });
+        setLessonId(lesson.id);
+        currentLessonId = lesson.id;
+      }
+
       const resp: ClarifyResponse = await apiClarify(
         query,
-        materials.map((m) => m.file_id)
+        materials.map((m) => m.file_id),
+        currentLessonId ?? undefined,
+        gpsSessionId ?? undefined,
+        history as ChatMessage[],
       );
       const result = resp.result;
       setGpsResult(result);
+
+      // 如果后端返回了新的 sessionId，保存到 store
+      if (resp.session_id) {
+        setGpsSessionId(resp.session_id);
+      }
+
       setHistory((h) => [
         ...h,
         {

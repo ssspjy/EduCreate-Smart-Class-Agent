@@ -4,9 +4,11 @@ from app.schemas.gps import (
     ChatMessage,
     ClarifyRequest,
     ClarifyResponse,
+    DifficultyLevel,
     GpsClarifyResult,
     MissingSlot,
     SlotUpdate,
+    TeachingStyle,
 )
 from app.schemas.lesson_ir import (
     DagSnapshot,
@@ -28,9 +30,11 @@ __all__ = [
     "ChatMessage",
     "ClarifyRequest",
     "ClarifyResponse",
+    "DifficultyLevel",
     "GpsClarifyResult",
     "MissingSlot",
     "SlotUpdate",
+    "TeachingStyle",
     # lesson_ir
     "DagSnapshot",
     "DialogueTurn",
