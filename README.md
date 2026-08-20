@@ -38,7 +38,7 @@ EduCreate-Smart-Class-Agent/
 |------|------|
 | 前端 | React 18 + Vite + TypeScript + Ant Design + TanStack Query + Zustand + XState + React Flow + ECharts + PDF.js |
 | 后端 | Python 3.11 + FastAPI + SQLAlchemy + Alembic + Pydantic + Celery |
-| 数据库 | PostgreSQL + pgvector（HNSW 索引）|
+| 数据库 | SQLite（当前骨架默认）→ PostgreSQL + pgvector（目标架构）|
 | 缓存 | Redis |
 | 对象存储 | MinIO |
 | LLM | DeepSeek 主用，OpenAI-compatible provider 兜底（通过 LangChain 适配）|
@@ -47,7 +47,7 @@ EduCreate-Smart-Class-Agent/
 | 实时通信 | REST API 主通道 + SSE（Server-Sent Events）|
 | 容器化 | Docker Compose |
 
-> 当前仓库仍处于骨架阶段。上表中数据库、缓存、对象存储、LLM、Embedding、重排、实时通信等为架构选型和模块预留，代码中尚未完成真实接入。
+> 当前仓库仍处于骨架阶段。已完成 SQLite 本地持久化、文件落盘、PDF/DOCX/PPTX 文本解析与 chunks 入库；缓存、对象存储、LLM、Embedding、重排、实时通信等仍为架构选型和模块预留。
 
 ## 快速开始
 
@@ -143,13 +143,17 @@ npm audit
 - [x] 前端路由跳转与 API base 配置对齐
 - [x] 前端 `npm run build` 通过
 - [x] 前端 `npm audit` 0 vulnerabilities
-- [x] 后端 `pytest -q` 通过（4 passed）
+- [x] 后端 `pytest -q` 通过（11 passed）
+- [x] SQLite 默认数据库与核心表自动建表（materials / chunks / lessons / lesson_irs / generation_jobs / generated_artifacts / edit_requests / rag_evidences）
+- [x] 参考资料安全上传落盘（UUID 目录、扩展名白名单、大小限制）
+- [x] PDF / DOCX / PPTX 文本解析并写入 chunks
+- [x] 图片 / 视频上传保存，但不伪造 OCR/字幕内容，等待后续 OCR / Whisper 接入
 
 ⏳ 进行中（服务层骨架就绪，业务逻辑待填）
-- [ ] PostgreSQL + pgvector 接入
+- [ ] PostgreSQL + pgvector 接入（替换当前 SQLite 默认开发库）
 - [ ] BGE-M3 嵌入服务接入
 - [ ] LLM provider 抽象层接入 DeepSeek / fallback
-- [ ] 参考资料解析流水线（PDF / Word / PPT / 图片 / 视频）
+- [ ] OCR / 视频转写解析流水线（图片 / 视频）
 - [ ] 语音输入（Web Speech API + MediaRecorder fallback）
 - [ ] GPS 教学意图结构化提取（gps/clarifier + reasoner + dag_builder）
 - [ ] PPTAgent outline 生成 + 编辑 actions（pptagent/outliner + editor）
@@ -175,13 +179,14 @@ pytest -q
 结果：
 - 前端构建通过。
 - 前端依赖审计为 0 vulnerabilities。
-- 后端测试通过：4 passed。
-- 后端 pytest 在 Windows 中文路径下可能出现 `.pytest_cache` 写入警告，不影响测试结果。
+- 后端测试通过：11 passed。
+- 后端测试使用 `backend/tests/_tmp/` 隔离数据库、上传文件和 pytest cache，避免污染开发数据。
 
 ## 已知边界
 
-- 当前 API 和服务层多为占位实现，用于验证架构骨架和前后端联通。
+- GPS、PPTAgent、RAG、导出等服务层仍为占位实现；materials 上传、文件落盘、文本解析、chunks 入库、lesson 工作区创建已具备最小真实闭环。
 - Docker Compose 当前只启动前端和后端，尚未接入数据库、缓存、对象存储和异步 Worker。
+- 当前默认数据库是本地 SQLite，运行数据位于 `backend/data/` 与 `backend/uploads/`，已被 `.gitignore` 排除；测试运行数据位于 `backend/tests/_tmp/`。
 - `pptxgenjs` 因当前依赖链存在高危审计问题，暂未作为生产依赖安装；后续实现 `ppt-export` 时需重新评估安全版本或做图片输入隔离。
 - `基础/` 为外部参考材料目录，已被 `.gitignore` 排除。
 

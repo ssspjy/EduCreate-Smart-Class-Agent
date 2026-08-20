@@ -1,1 +1,5 @@
-"""Pydantic Schema 占位（含 DAG 节点/边）。"""
+"""Pydantic schemas."""
+
+from app.schemas.materials import ChunkResponse, MaterialDetailResponse, MaterialResponse
+
+__all__ = ["ChunkResponse", "MaterialDetailResponse", "MaterialResponse"]

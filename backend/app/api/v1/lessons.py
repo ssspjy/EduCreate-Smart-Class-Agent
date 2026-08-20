@@ -4,7 +4,12 @@
 """
 
 from fastapi import APIRouter
+from fastapi import Depends
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
+
+from app.db import get_db
+from app.models import Lesson
 
 router = APIRouter()
 
@@ -126,12 +131,36 @@ async def generate_outline(gps: GpsResult) -> OutlineResponse:
 
 
 @router.post("/generate", summary="生成教案 + 课件")
-async def generate_lesson(req: LessonRequest) -> LessonResponse:
-    """占位：触发 GPS + PPTAgent 流水线。"""
-    return LessonResponse(lesson_id="pending", status="queued")
+async def generate_lesson(
+    req: LessonRequest,
+    db: Session = Depends(get_db),
+) -> LessonResponse:
+    """Create a persistent lesson workspace before later generation stages."""
+    lesson = Lesson(
+        title=f"{req.grade} {req.subject}：{req.topic}",
+        subject=req.subject,
+        grade=req.grade,
+        topic=req.topic,
+        status="draft",
+    )
+    db.add(lesson)
+    db.commit()
+    db.refresh(lesson)
+    return LessonResponse(lesson_id=lesson.id, status=lesson.status)
 
 
 @router.get("", summary="列出教案")
-async def list_lessons() -> list[dict[str, str]]:
-    """占位：返回空列表。"""
-    return []
+async def list_lessons(db: Session = Depends(get_db)) -> list[dict[str, str]]:
+    """List persisted lesson workspaces."""
+    lessons = db.query(Lesson).order_by(Lesson.created_at.desc()).all()
+    return [
+        {
+            "id": lesson.id,
+            "title": lesson.title,
+            "status": lesson.status,
+            "subject": lesson.subject or "",
+            "grade": lesson.grade or "",
+            "topic": lesson.topic or "",
+        }
+        for lesson in lessons
+    ]

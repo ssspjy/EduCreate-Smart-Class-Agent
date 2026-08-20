@@ -215,6 +215,8 @@ LLM 不直接散落在业务代码中调用，统一经过 `services/llm/provide
 
 上传不是只保存文件，而是进入统一解析任务：
 
+> 当前骨架实现：使用 SQLite + 本地 `uploads/` 同步完成文件落盘和 PDF / DOCX / PPTX 文本解析；图片 / 视频仅保存文件并返回明确 warning。运行时相对路径锚定在 `backend/`，测试使用 `backend/tests/_tmp/` 隔离数据。目标架构再接入 PostgreSQL / MinIO / Celery / BGE-M3 / pgvector。
+
 ```
 POST /api/v1/materials/upload
         ↓

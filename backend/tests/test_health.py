@@ -2,12 +2,8 @@
 
 from fastapi.testclient import TestClient
 
-from app.main import app
 
-client = TestClient(app)
-
-
-def test_health_ok() -> None:
+def test_health_ok(client: TestClient) -> None:
     response = client.get("/health")
     assert response.status_code == 200
     payload = response.json()
@@ -15,13 +11,13 @@ def test_health_ok() -> None:
     assert "version" in payload
 
 
-def test_lessons_list_ok() -> None:
+def test_lessons_list_ok(client: TestClient) -> None:
     response = client.get("/api/v1/lessons")
     assert response.status_code == 200
     assert isinstance(response.json(), list)
 
 
-def test_knowledge_search_ok() -> None:
+def test_knowledge_search_ok(client: TestClient) -> None:
     response = client.post(
         "/api/v1/knowledge/search",
         json={"query": "光的折射", "top_k": 3},
@@ -30,7 +26,7 @@ def test_knowledge_search_ok() -> None:
     assert isinstance(response.json(), list)
 
 
-def test_openapi_docs_ok() -> None:
+def test_openapi_docs_ok(client: TestClient) -> None:
     """确保所有路由注册成功（无路由加载错误）。"""
     response = client.get("/openapi.json")
     assert response.status_code == 200

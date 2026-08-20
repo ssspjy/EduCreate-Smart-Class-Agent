@@ -6,18 +6,31 @@
 - CORS：允许本地前端开发端口 5173 跨域
 """
 
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
 from app.core.config import get_settings
+from app.db import init_db
 
 settings = get_settings()
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
+    """Initialize local skeleton storage during app startup."""
+    init_db()
+    yield
+
 
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
     description="师创智课 - 教育内容智能创作与课堂代理",
+    lifespan=lifespan,
 )
 
 app.add_middleware(

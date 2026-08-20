@@ -1,5 +1,23 @@
-"""SQLAlchemy ORM 占位。
+"""SQLAlchemy ORM models."""
 
-文档 §3.2 models/：SQLAlchemy ORM。
-后续在此定义 Teacher / Course / Material / Chunk / Lesson / ArtifactVersion 等模型。
-"""
+from app.models.entities import (
+    Chunk,
+    EditRequest,
+    GeneratedArtifact,
+    GenerationJob,
+    Lesson,
+    LessonIR,
+    Material,
+    RagEvidence,
+)
+
+__all__ = [
+    "Chunk",
+    "EditRequest",
+    "GeneratedArtifact",
+    "GenerationJob",
+    "Lesson",
+    "LessonIR",
+    "Material",
+    "RagEvidence",
+]

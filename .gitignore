@@ -1,6 +1,7 @@
 # 依赖说明
 node_modules/
 .venv/
+.nenv/
 venv/
 __pycache__/
 *.py[cod]
@@ -27,6 +28,9 @@ Thumbs.db
 *.log
 tmp/
 uploads/
+backend/data/
+backend/uploads/
+backend/tests/_tmp/
 
 # 外部参考材料（不在仓库范围内跟踪）
 基础/

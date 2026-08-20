@@ -4,7 +4,12 @@
 export interface Material {
   file_id: string;
   filename: string;
-  status: "queued" | "parsed" | "error";
+  status: "uploaded" | "parsing" | "parsed" | "failed" | "queued" | "error";
+  mime?: string;
+  extension?: string;
+  size?: number;
+  chunk_count?: number;
+  error_message?: string | null;
 }
 
 export interface GpsClarifyResult {
