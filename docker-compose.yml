@@ -53,6 +53,12 @@ services:
       - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-hash}
       - EMBEDDING_DIMENSION=${EMBEDDING_DIMENSION:-1024}
       - BGE_MODEL_NAME=${BGE_MODEL_NAME:-BAAI/bge-m3}
+      - OCR_ENABLED=${OCR_ENABLED:-true}
+      - OCR_LANGUAGE=${OCR_LANGUAGE:-chi_sim}
+      - OCR_DPI=${OCR_DPI:-200}
+      - OCR_TIMEOUT_SECONDS=${OCR_TIMEOUT_SECONDS:-30}
+      - OCR_MAX_PAGES=${OCR_MAX_PAGES:-30}
+      - OCR_MAX_PIXELS=${OCR_MAX_PIXELS:-20000000}
     volumes:
       - backend_uploads:/app/uploads
     depends_on:

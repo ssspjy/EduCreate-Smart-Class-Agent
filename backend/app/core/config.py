@@ -3,6 +3,7 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_ROOT = Path(__file__).resolve().parents[2]
@@ -38,6 +39,12 @@ class Settings(BaseSettings):
     embedding_provider: str = "hash"
     embedding_dimension: int = 1024
     bge_model_name: str = "BAAI/bge-m3"
+    ocr_enabled: bool = True
+    ocr_language: str = "chi_sim"
+    ocr_dpi: int = Field(default=200, ge=72, le=400)
+    ocr_timeout_seconds: int = Field(default=30, ge=1, le=120)
+    ocr_max_pages: int = Field(default=30, ge=1, le=100)
+    ocr_max_pixels: int = Field(default=20_000_000, ge=1_000_000, le=50_000_000)
 
     model_config = SettingsConfigDict(
         env_file=".env",

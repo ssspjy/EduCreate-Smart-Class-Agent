@@ -80,7 +80,7 @@
 
 - **前端**：Nginx 托管 React 构建产物，并把 `/api/*` 反向代理到后端
 - **后端**：比赛版使用 Uvicorn 部署 FastAPI；材料解析、GPS、大纲、质检和导出均从统一 REST API 提供
-- **PostgreSQL + pgvector**：Compose 的正式数据层；chunks 已写入 1024 维向量并支持余弦检索。BGE-M3 模型和 HNSW 索引仍作为后续优化，未安装模型时使用 hash embedding 降级
+- **PostgreSQL + pgvector**：Compose 的正式数据层；chunks 已写入 1024 维向量并建立 HNSW 索引，支持余弦检索。BGE-M3 为可选 provider，未安装模型时使用 hash embedding 降级
 - **文件存储**：原始资料与生成成果使用后端目录和 Docker 命名卷，减少比赛环境依赖
 - **本地开发**：允许继续使用 SQLite，保证无需 Docker 也能开发和运行测试
 - **数据库迁移**：Alembic 作为结构版本控制；启动时保留幂等兼容检查，避免旧比赛数据卷在升级期间不可用
@@ -145,7 +145,7 @@ backend/
 │   │   │   ├── editor.py       # Stage II：编辑 actions 生成
 │   │   │   ├── executor.py     # 5 类错误兜底 + self-correction
 │   │   │   └── ppteval.py      # 视觉质检（Content/Design/Coherence）
-│   │   ├── parsers/            # 多模态解析（PyMuPDF/pptx/docx/PaddleOCR/FFmpeg/faster-whisper）
+│   │   ├── parsers/            # 文档解析 + PDFium/Pillow/Tesseract OCR
 │   │   └── generators/         # python-docx（教案）+ Jinja2（模板）
 │   ├── db/                     # PostgreSQL + Alembic 迁移
 │   └── utils/
@@ -198,17 +198,17 @@ LLM 不直接散落在业务代码中调用，统一经过 `services/llm/provide
 
 | 文件类型 | 处理方式 | 产出 |
 |---|---|---|
-| PDF | PyMuPDF 提取文本 + 页码 + bbox | `chunks` (页级 + 段级 + bbox) |
-| Word (docx) | python-docx 解析段落 + 标题层级 | `chunks` (标题锚段) |
-| PPT (pptx) | python-pptx 提取幻灯片文本 + slide_idx | `chunks` (slide 级) |
-| 图片 (png/jpg) | PaddleOCR + OpenCV 预处理 + 图像特征 | `chunks` (caption + bbox + 图像向量) |
+| PDF | pypdf 提取文本；无文本页由 PDFium 渲染后交给 Tesseract | `chunks`（页码 + text/ocr 模态） |
+| Word (docx) | python-docx 解析段落、表格、页眉和页脚 | `chunks`（文档级） |
+| PPT (pptx) | python-pptx 提取幻灯片文本 | `chunks`（页码） |
+| 图片 (png/jpg) | Pillow 预处理 + Tesseract 中英文识别 | `chunks`（ocr 模态） |
 | 视频 (mp4) | FFmpeg 抽关键帧 → OpenCV 帧处理 → faster-whisper 音频转写 + Qwen2-VL 描述 | `chunks` (帧级 + 时间戳 + 字幕) |
 
 ### 3.5.1.1 解析流水线
 
 上传不是只保存文件，而是进入统一解析任务：
 
-> 当前实现：本地开发使用 SQLite，Compose 使用 PostgreSQL + pgvector；两种模式均通过后端文件目录保存上传内容。PDF / DOCX / PPTX / Markdown / TXT 会解析并写入 chunks 与 1024 维 embedding；PostgreSQL 走 pgvector 余弦检索，SQLite 走词法降级。BGE-M3、OCR、视频转写和异步任务仍待接入。
+> 当前实现：本地开发使用 SQLite，Compose 使用 PostgreSQL + pgvector；两种模式均通过后端文件目录保存上传内容。PDF / DOCX / PPTX / Markdown / TXT 和图片 OCR 会写入 chunks 与 1024 维 embedding；扫描 PDF 仅对无文本页执行 OCR。PostgreSQL 走 pgvector 余弦检索，SQLite 走词法降级。BGE-M3、视频转写和异步任务仍待完整接入。
 
 ```
 POST /api/v1/materials/upload
@@ -309,7 +309,7 @@ slide 渲染逻辑：
 | 场景 | 处理 |
 |---|---|
 | 视频只有 mp4，无内置字幕 | 仅靠关键帧 caption，文字检索能力弱，前端 UI 给出明确提示 |
-| 图片 OCR 失败 | 降级为视觉向量检索 (BGE-M3 图像向量 / ColPali)，仅做相似度匹配，不绑到具体页 |
+| 图片 OCR 失败 | 保存原始材料并返回明确 warning，不生成虚假 chunk；视觉向量检索待接入 |
 | 教师没明确"用到哪里" | 默认归入 RAG 全局检索，不绑特定 slide |
 | 绑定冲突（同一段绑多个 slide） | 取最相似 + 教师确认 |
 
@@ -711,6 +711,7 @@ created_at           action_json        excerpt (text)
 | 缓存 / 任务队列 | Redis + Celery（条件接入） | 仅在 OCR / 视频转写等任务异步化后进入比赛运行时 |
 | 部署 | **Docker Compose** + **Nginx** | 一键部署，负载均衡，静态托管 |
 | 后端测试 | **Pytest** | 单元测试 + 集成测试 |
+| OCR | **pypdfium2 + Pillow + Tesseract** | 仅处理图片和 PDF 无文本页；Docker 内置中英文语言包并设置资源边界 |
 | Embedding | **BGE-M3**（中文 dense / sparse / multi-vector 三路召回） | 多语言，文本检索主力 |
 | 视觉检索 | **ColPali**（PDF / PPT 页面图像细粒度视觉检索） | 图像型资料的语义定位 |
 | 重排 | **bge-reranker-v2-m3** | 检索后重排序，提升相关性 |
@@ -751,11 +752,11 @@ created_at           action_json        excerpt (text)
 
 ### 9.1 常规安全
 
-- 所有 API 走 HTTPS
-- JWT 鉴权 + RBAC
+- 生产部署应在反向代理层启用 HTTPS；本地和 Compose 演示环境使用 HTTP
+- JWT 鉴权可通过 `AUTH_REQUIRED=true` 启用；细粒度 RBAC 待实现
 - 文件上传校验：mime + 大小上限（默认 50MB）+ 后缀白名单（pdf/docx/doc/pptx/ppt/jpg/png/mp4）
-- 上传文件存 PostgreSQL（Large Object 或文件系统），不直接执行
-- Redis 存会话 token，设 TTL 自动过期
+- 上传文件保存到受控文件目录 / Docker 命名卷，数据库只记录元数据和受控路径，不直接执行上传内容
+- GPS 会话当前持久化到数据库；Redis 尚未进入比赛运行时
 - 用户密码 bcrypt 哈希
 - 敏感配置走环境变量，不入仓
 - Docker Compose 隔离网络，最小化容器权限
@@ -773,6 +774,7 @@ created_at           action_json        excerpt (text)
 
 ## 10. 后续文档
 
+- `docs/OCR.md` — OCR 配置、运行边界与冒烟排障（已提供）
 - `docs/GPS_INTEGRATION.md` — GPS 接入详细设计
 - `docs/PPTAGENT_INTEGRATION.md` — PPTAgent 接入详细设计
 - `docs/INTERACTIVE_CONTENT.md` — 动画 / 小游戏模板与导出设计

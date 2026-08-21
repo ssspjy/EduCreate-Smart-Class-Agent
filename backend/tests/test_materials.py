@@ -9,6 +9,8 @@ from pypdf import PdfWriter
 
 from app.db import SessionLocal
 from app.models import Chunk
+from app.services.parsers import parser as parser_module
+from app.services.parsers.ocr import OCRResult
 
 
 def test_upload_image_is_persisted_without_fake_chunks(client: TestClient) -> None:
@@ -27,6 +29,27 @@ def test_upload_image_is_persisted_without_fake_chunks(client: TestClient) -> No
     detail = client.get(f"/api/v1/materials/{payload['file_id']}")
     assert detail.status_code == 200
     assert detail.json()["chunks"] == []
+
+
+def test_upload_image_uses_ocr_when_text_is_recognized(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    def fake_ocr_image(*args, **kwargs) -> OCRResult:
+        return OCRResult(text_by_page={1: "图片识别：阿基米德原理"})
+
+    monkeypatch.setattr(parser_module, "ocr_image", fake_ocr_image)
+    response = client.post(
+        "/api/v1/materials/upload",
+        files={"file": ("formula.png", b"mock-image", "image/png")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "parsed"
+    chunks = client.get(f"/api/v1/materials/{payload['file_id']}/chunks").json()
+    assert chunks[0]["content"] == "图片识别：阿基米德原理"
+    assert chunks[0]["modality"] == "ocr"
 
 
 def test_upload_docx_extracts_text_chunks(client: TestClient) -> None:
@@ -121,6 +144,36 @@ def test_blank_pdf_reports_ocr_warning(client: TestClient) -> None:
     payload = response.json()
     assert payload["status"] == "uploaded"
     assert "OCR" in payload["error_message"]
+
+
+def test_scanned_pdf_uses_ocr_and_persists_page_metadata(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    writer = PdfWriter()
+    writer.add_blank_page(width=300, height=300)
+    buffer = BytesIO()
+    writer.write(buffer)
+
+    def fake_ocr_pdf_pages(*args, **kwargs) -> OCRResult:
+        return OCRResult(text_by_page={1: "扫描识别：光的折射定律"})
+
+    monkeypatch.setattr(parser_module, "ocr_pdf_pages", fake_ocr_pdf_pages)
+    response = client.post(
+        "/api/v1/materials/upload",
+        files={"file": ("scan.pdf", buffer.getvalue(), "application/pdf")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "parsed"
+    assert payload["chunk_count"] == 1
+    assert payload["error_message"] is None
+
+    chunks = client.get(f"/api/v1/materials/{payload['file_id']}/chunks").json()
+    assert chunks[0]["content"] == "扫描识别：光的折射定律"
+    assert chunks[0]["page_ref"] == 1
+    assert chunks[0]["modality"] == "ocr"
 
 
 def test_export_docx_returns_valid_word_document(client: TestClient) -> None:

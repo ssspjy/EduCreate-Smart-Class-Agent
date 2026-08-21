@@ -5,7 +5,7 @@
 ## 项目简介
 
 面向教师的比赛级“智能备课”纯 Web 应用，目标能力包括：
-- 教学材料解析（PDF / DOCX / PPTX / Markdown / TXT；图片和视频保留上传接口）
+- 教学材料解析（PDF / DOCX / PPTX / Markdown / TXT，以及图片和扫描 PDF OCR；视频保留上传接口）
 - 多轮对话澄清教学意图（GPS 模块）
 - 课件与教案生成（PPTAgent 模块）
 - 知识库检索增强（BGE-M3 + pgvector）
@@ -44,19 +44,30 @@ EduCreate-Smart-Class-Agent/
 | 数据库 | 本地开发使用 SQLite；Docker Compose 使用 PostgreSQL 16 + pgvector |
 | 文件存储 | 本地开发目录 / Docker 持久化卷 |
 | LLM | DeepSeek 主用，OpenAI-compatible provider 兜底 |
-| Embedding | BGE-M3 + ColPali（视觉检索）|
-| 重排 | bge-reranker-v2-m3 |
+| Embedding | PostgreSQL pgvector；默认 hash embedding，可选 BGE-M3 provider |
+| OCR | PDFium + Pillow + Tesseract（简体中文 / 英文） |
+| 重排 | 词法/向量基础召回；bge-reranker-v2-m3 待接入 |
 | PPTX 导出 | 后端 `python-pptx` |
 | 通信 | REST API；SSE 作为后续生成进度增强 |
 | 容器化 | Docker Compose |
 
-> 比赛版遵循“核心闭环真实可用、部署依赖最少化”的原则。Redis / Celery 只在 OCR、视频转写等耗时任务异步化后接入；MinIO、WebTransport 不作为比赛交付硬依赖。
+> 比赛版遵循“核心闭环真实可用、部署依赖最少化”的原则。OCR 当前在线程中受限执行；需要长任务进度或视频转写后再接入 Redis / Celery。MinIO、WebTransport 不作为比赛交付硬依赖。
 
 ## 快速开始
 
 ### 方式一：Docker Compose（推荐）
 
 Docker Compose 启动 `frontend`、`backend`、`PostgreSQL + pgvector`，并为数据库和上传文件配置持久化卷。
+后端镜像同时安装 Tesseract 中英文语言包，可直接识别图片和扫描版 PDF。OCR 参数与排障方法见 [`docs/OCR.md`](./docs/OCR.md)。
+
+| 常用 OCR 配置 | 默认值 | 说明 |
+|---|---:|---|
+| `OCR_ENABLED` | `true` | 启用图片和扫描 PDF OCR |
+| `OCR_LANGUAGE` | `chi_sim` | 中文优先模型也可识别拉丁字母；纯英文资料可改为 `eng` |
+| `OCR_DPI` | `200` | PDF 页面渲染清晰度 |
+| `OCR_MAX_PAGES` | `30` | 单个 PDF 的 OCR 页数上限 |
+| `OCR_TIMEOUT_SECONDS` | `30` | 单页识别超时秒数 |
+| `OCR_MAX_PIXELS` | `20000000` | 单页进入识别前的像素上限 |
 
 ```bash
 # 在仓库根目录
@@ -156,7 +167,8 @@ npm audit
 - [x] SQLite 默认数据库与核心表自动建表（materials / chunks / lessons / lesson_irs / generation_jobs / generated_artifacts / edit_requests / rag_evidences）
 - [x] 参考资料安全上传落盘（UUID 目录、扩展名白名单、大小限制）
 - [x] PDF / DOCX / PPTX 文本解析并写入 chunks
-- [x] 图片 / 视频上传保存，但不伪造 OCR/字幕内容，等待后续 OCR / Whisper 接入
+- [x] 图片及扫描 PDF 使用 Tesseract 中英文 OCR，保留页码和 `ocr` 模态；失败时明确降级告警
+- [x] 视频上传保存但不伪造字幕内容，等待 Whisper 接入
 - [x] **阶段一完成**：意图澄清页面（ClarifyPage）完整实现，含 DAG 可视化、追问建议、提交后 session_id 持久化、GPT-4o 预览能力、Ant Design 五步进度条、Vite 代理端口修正（8001）
 - [x] GPS 槽位提取、动态追问与 DAG 完成度计算
 - [x] 基于 GPS 字段动态生成课件大纲
@@ -167,7 +179,8 @@ npm audit
 ⏳ 进行中（服务层骨架就绪，业务逻辑待填）
 - [x] 为 chunks 增加 1024 维向量字段、写入和 pgvector 检索查询（Compose 已提供 pgvector 数据库）
 - [ ] BGE-M3 模型服务接入（当前支持 `EMBEDDING_PROVIDER=bge`，未安装模型时自动 hash 降级）
-- [ ] OCR / 视频转写解析流水线（图片 / 视频）
+- [x] 图片 / 扫描 PDF OCR 解析流水线
+- [ ] 视频转写解析流水线
 - [ ] 语音输入（Web Speech API + MediaRecorder fallback）
 - [ ] PPTAgent 参考页分析 + 编辑 actions + self-correction
 - [x] 教案 python-docx 生成与下载
@@ -177,7 +190,7 @@ npm audit
 
 ## 当前验证结果
 
-最近一次本地验证（2026-08-21，Python 3.12）：
+2026-08-21 本地验证（Python 3.12）：
 
 ```bash
 # frontend
@@ -188,12 +201,12 @@ npm audit
 pytest -q
 ```
 
-结果：
+结果（阶段五验证）：
 
 - 前端 TypeScript 检查和 Vite 生产构建通过。
-- 后端测试通过：`55 passed`；存在 29 条 `datetime.utcnow()` 弃用警告，不影响当前结果。
-- Compose YAML 静态解析通过，包含 `postgres`、`backend`、`frontend` 三个服务和两个持久化卷。
-- 当前验证环境未安装 Docker，尚未在本机实际启动 PostgreSQL 容器。
+- 后端测试通过：`64 passed`；仍有 `datetime.utcnow()` 弃用警告，不影响当前结果。
+- Compose 中 `postgres`、`backend`、`frontend` 已实际启动并通过健康检查。
+- 已用无文本层 PDF 验证 Docker 内中英文 Tesseract 运行链路，OCR chunk 带页码和模态信息。
 
 测试使用 `backend/tests/_tmp/` 隔离 SQLite 数据库、上传文件和 pytest cache，避免污染开发数据。Docker 模式单独使用 PostgreSQL + pgvector。
 
@@ -201,6 +214,7 @@ pytest -q
 
 - GPS、动态大纲、规则质检和 PPTX 导出已有可运行实现；PPTAgent 的参考页编辑范式和模型增强仍需补齐。
 - `/knowledge/search` 在 PostgreSQL 上已使用 chunks 的 pgvector 余弦检索；本地 SQLite 或未安装 BGE 模型时使用确定性的 hash embedding/词法降级。
+- OCR 当前由上传请求同步等待，但解析工作不阻塞事件循环，并限制并发、页数、DPI、像素和单页超时；任务队列与进度推送属于后续增强。
 - 本地直接运行默认使用 SQLite，数据位于 `backend/data/` 与 `backend/uploads/`；Docker 使用 PostgreSQL 和命名卷，测试数据位于 `backend/tests/_tmp/`。
 - 比赛版正式 PPT 导出路径是后端 `python-pptx`；PptxGenJS 仅保留为未来浏览器内编辑的候选方案。
 - Redis / Celery、MinIO 和 WebTransport 暂不进入比赛版运行时，除非对应业务能力真正接入。

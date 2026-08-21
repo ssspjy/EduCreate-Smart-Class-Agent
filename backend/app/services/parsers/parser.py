@@ -1,8 +1,12 @@
 """Material parser entrypoint with explicit partial-capability warnings."""
 
+import asyncio
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
+
+from app.core.config import get_settings
+from app.services.parsers.ocr import ocr_image, ocr_pdf_pages
 
 
 @dataclass
@@ -57,11 +61,37 @@ def _parse_pdf(path: Path) -> tuple[list[ParsedChunk], list[str]]:
             empty_pages.append(page_index)
         for part in parts:
             chunks.append(ParsedChunk(content=part, page_ref=page_index))
-    warnings = []
-    if empty_pages:
-        warnings.append(
-            f"{len(empty_pages)} 个 PDF 页面没有可提取文本，可能需要 OCR"
+    warnings: list[str] = []
+    settings = get_settings()
+    if empty_pages and settings.ocr_enabled:
+        pages_to_ocr = empty_pages[: settings.ocr_max_pages]
+        ocr_result = ocr_pdf_pages(
+            path,
+            pages_to_ocr,
+            language=settings.ocr_language,
+            dpi=settings.ocr_dpi,
+            timeout_seconds=settings.ocr_timeout_seconds,
+            max_pixels=settings.ocr_max_pixels,
         )
+        warnings.extend(ocr_result.warnings)
+        for page_number in pages_to_ocr:
+            for part in _split_text(ocr_result.text_by_page.get(page_number, "")):
+                chunks.append(
+                    ParsedChunk(content=part, page_ref=page_number, modality="ocr")
+                )
+        unresolved_pages = [
+            page_number
+            for page_number in empty_pages
+            if page_number not in ocr_result.text_by_page
+        ]
+        if unresolved_pages:
+            warnings.append(f"{len(unresolved_pages)} 个 PDF 页面在 OCR 后仍无可提取文本")
+        if len(empty_pages) > settings.ocr_max_pages:
+            warnings.append(
+                f"PDF 空文本页面超过 OCR 上限 {settings.ocr_max_pages} 页，其余页面未处理"
+            )
+    elif empty_pages:
+        warnings.append(f"{len(empty_pages)} 个 PDF 页面没有可提取文本，OCR 已关闭")
     return chunks, warnings
 
 
@@ -114,17 +144,31 @@ async def parse(file_path: str, file_type: str) -> ParseResult:
     extension = file_type.lower().lstrip(".")
 
     if extension == "pdf":
-        chunks, warnings = _parse_pdf(path)
+        chunks, warnings = await asyncio.to_thread(_parse_pdf, path)
         return ParseResult(chunks=chunks, warnings=warnings)
     if extension == "docx":
-        return ParseResult(chunks=_parse_docx(path), warnings=[])
+        return ParseResult(chunks=await asyncio.to_thread(_parse_docx, path), warnings=[])
     if extension == "pptx":
-        return ParseResult(chunks=_parse_pptx(path), warnings=[])
+        return ParseResult(chunks=await asyncio.to_thread(_parse_pptx, path), warnings=[])
     if extension in {"md", "txt"}:
-        return ParseResult(chunks=_parse_plain_text(path), warnings=[])
+        return ParseResult(chunks=await asyncio.to_thread(_parse_plain_text, path), warnings=[])
 
     if extension in {"png", "jpg", "jpeg"}:
-        return ParseResult(chunks=[], warnings=["image OCR is not connected yet"])
+        settings = get_settings()
+        if not settings.ocr_enabled:
+            return ParseResult(chunks=[], warnings=["图片 OCR 已关闭"])
+        ocr_result = await asyncio.to_thread(
+            ocr_image,
+            path,
+            settings.ocr_language,
+            settings.ocr_timeout_seconds,
+            settings.ocr_max_pixels,
+        )
+        chunks = [
+            ParsedChunk(content=part, page_ref=1, modality="ocr")
+            for part in _split_text(ocr_result.text_by_page.get(1, ""))
+        ]
+        return ParseResult(chunks=chunks, warnings=ocr_result.warnings)
     if extension == "mp4":
         return ParseResult(chunks=[], warnings=["video transcription is not connected yet"])
     if extension in {"doc", "ppt"}:
