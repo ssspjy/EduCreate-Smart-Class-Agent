@@ -22,6 +22,7 @@
 - 视频转写默认关闭模型下载；必须先通过 FFprobe/FFmpeg 校验和提取音频，失败只返回 warning，不生成虚假字幕。
 - Whisper 模型不可随上传隐式联网下载；使用本地模型路径或显式开启下载，并持久化模型缓存。
 - 比赛部署前使用 `scripts/prepare_whisper.ps1` 显式准备模型；上传侧保持 `VIDEO_ALLOW_MODEL_DOWNLOAD=false`，并通过 `VIDEO_WHISPER_MODEL_PATH` 指向已准备目录。
+- 语音输入优先使用浏览器实时识别；MediaRecorder 回退必须上传真实音频并等待后端 transcript，失败时显示 warning，不能伪造输入文本。
 - Embedding 默认使用确定性 hash；BGE-M3 是可选 provider，缺失时必须可降级。
 
 ## 修改原则

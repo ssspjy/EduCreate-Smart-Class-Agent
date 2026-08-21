@@ -16,9 +16,18 @@ import type {
   GpsClarifyResult,
   MissingSlot,
 } from "../services/api";
-import { apiClarify, apiClarifyWithHistory, apiCreateLesson, apiGetSessionDag } from "../services/api";
+import {
+  apiClarify,
+  apiClarifyWithHistory,
+  apiCreateLesson,
+  apiGetMaterialChunks,
+  apiGetSessionDag,
+  apiUploadMaterial,
+} from "../services/api";
 import { useWorkflowStore } from "../stores/workflow";
 import { isMaterialUsable } from "../utils/materials";
+import { appendVoiceText } from "../utils/voice";
+import VoiceInputButton from "../components/VoiceInputButton";
 
 const { Text, Title } = Typography;
 const { TextArea } = Input;
@@ -85,6 +94,7 @@ export default function ClarifyPage() {
     gpsResult,
     setGpsResult,
     setCurrentStep,
+    addMaterial,
     lessonId,
     setLessonId,
     materials,
@@ -200,6 +210,28 @@ export default function ClarifyPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleVoiceTranscript = (transcript: string) => {
+    setInput((current) => appendVoiceText(current, transcript));
+  };
+
+  const handleVoiceRecording = async (file: File) => {
+    const material = await apiUploadMaterial(file);
+    addMaterial(material);
+    if (material.status === "failed" || material.status === "error") {
+      throw new Error(material.error_message || "录音解析失败");
+    }
+    const chunks = await apiGetMaterialChunks(material.file_id);
+    const transcript = chunks
+      .filter((chunk) => chunk.modality === "transcript")
+      .map((chunk) => chunk.content.replace(/^\[[^\]]+\]\s*/, ""))
+      .join(" ");
+    if (!transcript) {
+      throw new Error(material.error_message || "录音已上传，但未生成语音转写；请检查 Whisper 配置");
+    }
+    setInput((current) => appendVoiceText(current, transcript));
+    message.success("录音已转写到输入框");
   };
 
   // 跳过当前缺失槽位
@@ -355,7 +387,7 @@ export default function ClarifyPage() {
             )}
 
             {/* 输入框 */}
-            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+            <div style={{ display: "flex", gap: 8, marginTop: 8, alignItems: "flex-start" }}>
               <TextArea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
@@ -369,6 +401,11 @@ export default function ClarifyPage() {
                 autoSize={{ minRows: 1, maxRows: 3 }}
                 style={{ flex: 1 }}
                 disabled={loading}
+              />
+              <VoiceInputButton
+                disabled={loading}
+                onTranscript={handleVoiceTranscript}
+                onRecordingComplete={handleVoiceRecording}
               />
               <Button
                 type="primary"

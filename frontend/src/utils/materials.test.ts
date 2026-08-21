@@ -20,6 +20,7 @@ describe("material upload helpers", () => {
     expect(SUPPORTED_FILE_ACCEPT).toContain(".png");
     expect(SUPPORTED_FILE_ACCEPT).toContain(".jpg");
     expect(SUPPORTED_FILE_ACCEPT).toContain(".mp4");
+    expect(SUPPORTED_FILE_ACCEPT).toContain(".webm");
   });
 
   it("formats PDF pages and video timestamps", () => {

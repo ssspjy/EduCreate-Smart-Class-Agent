@@ -167,8 +167,8 @@ def _transcribe_audio(
     return output
 
 
-def parse_video(path: Path, settings: object) -> VideoParseResult:
-    """Probe a video and optionally transcribe its extracted audio."""
+def _parse_transcribable_media(path: Path, settings: object, media_label: str) -> VideoParseResult:
+    """Probe a video/audio file and optionally transcribe its extracted audio."""
     result = VideoParseResult()
     duration, warning = _probe_duration(path, timeout=10)
     result.duration_seconds = duration
@@ -177,11 +177,11 @@ def parse_video(path: Path, settings: object) -> VideoParseResult:
         return result
     if duration is not None and duration > settings.video_max_duration_seconds:
         result.warnings.append(
-            f"视频时长超过上限 {settings.video_max_duration_seconds} 秒，未执行转写"
+            f"{media_label}时长超过上限 {settings.video_max_duration_seconds} 秒，未执行转写"
         )
         return result
     if not settings.video_transcription_enabled:
-        result.warnings.append("视频已验证，但 Whisper 转写未启用")
+        result.warnings.append(f"{media_label}已验证，但 Whisper 转写未启用")
         return result
     local_model_path = settings.video_whisper_model_path or _cached_model_path(
         settings.video_whisper_model,
@@ -215,5 +215,15 @@ def parse_video(path: Path, settings: object) -> VideoParseResult:
     except Exception as exc:
         result.warnings.append(f"视频转写失败（{type(exc).__name__}）")
     if not result.segments and not result.warnings:
-        result.warnings.append("视频未识别到语音内容")
+        result.warnings.append(f"{media_label}未识别到语音内容")
     return result
+
+
+def parse_video(path: Path, settings: object) -> VideoParseResult:
+    """Probe a video and optionally transcribe its extracted audio."""
+    return _parse_transcribable_media(path, settings, "视频")
+
+
+def parse_audio(path: Path, settings: object) -> VideoParseResult:
+    """Probe an audio recording and optionally transcribe it with Whisper."""
+    return _parse_transcribable_media(path, settings, "音频")

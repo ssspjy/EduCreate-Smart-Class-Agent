@@ -5,7 +5,7 @@
 ## 项目简介
 
 面向教师的比赛级“智能备课”纯 Web 应用，目标能力包括：
-- 教学材料解析（PDF / DOCX / PPTX / Markdown / TXT、图片和扫描 PDF OCR，以及可选视频转写）
+- 教学材料解析（PDF / DOCX / PPTX / Markdown / TXT、图片和扫描 PDF OCR，以及可选视频/语音转写）
 - 多轮对话澄清教学意图（GPS 模块）
 - 课件与教案生成（PPTAgent 模块）
 - 知识库检索增强（BGE-M3 + pgvector）
@@ -39,7 +39,7 @@ EduCreate-Smart-Class-Agent/
 
 | 维度 | 选型 |
 |------|------|
-| 前端 | React 18 + Vite + TypeScript + Ant Design + TanStack Query + Zustand + XState + React Flow + ECharts + PDF.js + Vitest |
+| 前端 | React 18 + Vite + TypeScript + Ant Design + TanStack Query + Zustand + XState + React Flow + ECharts + PDF.js + Web Speech API + MediaRecorder + Vitest |
 | 后端 | Python 3.11 + FastAPI + SQLAlchemy + Pydantic |
 | 数据库 | 本地开发使用 SQLite；Docker Compose 使用 PostgreSQL 16 + pgvector |
 | 文件存储 | 本地开发目录 / Docker 持久化卷 |
@@ -174,6 +174,7 @@ npm audit
 - [x] 图片及扫描 PDF 使用 Tesseract 中英文 OCR，保留页码和 `ocr` 模态；失败时明确降级告警
 - [x] 视频 FFmpeg 探测、音频提取和可选 Whisper 转写接口（默认关闭模型下载）
 - [x] Whisper 模型显式预下载脚本与模型缺失/时长上限防护
+- [x] 澄清页 Web Speech API 语音输入与 MediaRecorder 音频转写回退
 - [x] 上传页支持 PDF/Office/图片/MP4 选择、服务端材料同步、解析 warning 和 chunk/页码/视频时间戳抽屉预览
 - [x] 前端 Vitest 回归门禁（材料可用状态、上传格式和来源标签）
 - [x] **阶段一完成**：意图澄清页面（ClarifyPage）完整实现，含 DAG 可视化、追问建议、提交后 session_id 持久化、GPT-4o 预览能力、Ant Design 五步进度条、Vite 代理端口修正（8001）
@@ -188,7 +189,7 @@ npm audit
 - [ ] BGE-M3 模型服务接入（当前支持 `EMBEDDING_PROVIDER=bge`，未安装模型时自动 hash 降级）
 - [x] 图片 / 扫描 PDF OCR 解析流水线
 - [ ] 视频转写模型在比赛环境预下载并完成真实长视频验收
-- [ ] 语音输入（Web Speech API + MediaRecorder fallback）
+- [x] 语音输入（Web Speech API + MediaRecorder fallback；长录音异步化待后续）
 - [ ] PPTAgent 参考页分析 + 编辑 actions + self-correction
 - [x] 教案 python-docx 生成与下载
 - [ ] 互动内容 Jinja2 模板生成
@@ -209,14 +210,15 @@ npm audit
 pytest -q
 ```
 
-结果（阶段八验证）：
+结果（阶段九验证）：
 
-- 前端 Vitest `3 passed`，TypeScript 检查和 Vite 生产构建通过。
+- 前端 Vitest `5 passed`，TypeScript 检查和 Vite 生产构建通过。
 - 后端测试通过：`68 passed`；仍有 `datetime.utcnow()` 弃用警告，不影响当前结果。
 - Compose 中 `postgres`、`backend`、`frontend` 已实际启动并通过健康检查。
 - 已用无文本层 PDF 验证 Docker 内中英文 Tesseract 运行链路，OCR chunk 带页码和模态信息。
 - 已在 Docker 容器内生成并上传带音轨的 MP4，FFprobe/FFmpeg 链路通过；默认关闭 Whisper 时保留视频并返回明确 warning，不生成虚假字幕。
 - 已通过显式模型准备脚本下载 tiny 模型，并在临时开启转写的后端容器中完成真实短视频上传，生成带时间戳的 transcript chunk；验证后已恢复默认关闭转写。
+- 已验证 WebM 音频材料可上传并进入解析链路；MediaRecorder 回退会把真实录音交给后端，Whisper 未启用时返回 warning 而不伪造输入。
 
 测试使用 `backend/tests/_tmp/` 隔离 SQLite 数据库、上传文件和 pytest cache，避免污染开发数据。Docker 模式单独使用 PostgreSQL + pgvector。
 

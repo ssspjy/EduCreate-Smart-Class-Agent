@@ -233,6 +233,27 @@ def test_upload_video_persists_timestamped_transcript_chunks(
     assert chunks[0]["modality"] == "transcript"
 
 
+def test_upload_audio_persists_transcript_chunks(client: TestClient, monkeypatch) -> None:
+    def fake_parse_audio(*args, **kwargs) -> VideoParseResult:
+        return VideoParseResult(
+            duration_seconds=2.0,
+            segments=[TranscriptSegment(start=0.0, end=1.5, text="语音输入测试")],
+        )
+
+    monkeypatch.setattr(parser_module, "parse_audio", fake_parse_audio)
+    response = client.post(
+        "/api/v1/materials/upload",
+        files={"file": ("voice.webm", b"mock-audio", "audio/webm")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "parsed"
+    chunks = client.get(f"/api/v1/materials/{payload['file_id']}/chunks").json()
+    assert chunks[0]["content"] == "[0.0s–1.5s] 语音输入测试"
+    assert chunks[0]["modality"] == "transcript"
+
+
 def test_corrupt_supported_file_is_recorded_as_failed(client: TestClient) -> None:
     response = client.post(
         "/api/v1/materials/upload",

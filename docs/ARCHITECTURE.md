@@ -100,7 +100,7 @@
 | `charts/` | DAG 可视化、质检雷达图 | ECharts |
 | `flow/` | 算法关系图、流程结构展示 | React Flow |
 | `features/` | 业务功能模块 | 业务组件 |
-| `features/voice-input/` | 教师语音输入、录音状态、转写结果确认（待实现） | Web Speech API + MediaRecorder fallback |
+| `features/voice-input/` | 教师语音输入、录音状态、转写结果确认 | Web Speech API + MediaRecorder fallback |
 | `services/` | API 调用；SSE 进度推送待异步任务接入 | Fetch + TanStack Query |
 | `stores/` | 全局状态 | Zustand |
 | `state/` | 业务流程状态机 | **XState**（澄清 → 解析 → 蓝图 → 生成 → 质检 → 修改 → 导出） |
@@ -203,12 +203,13 @@ LLM 不直接散落在业务代码中调用，统一经过 `services/llm/provide
 | PPT (pptx) | python-pptx 提取幻灯片文本 | `chunks`（页码） |
 | 图片 (png/jpg) | Pillow 预处理 + Tesseract 中英文识别 | `chunks`（ocr 模态） |
 | 视频 (mp4) | FFprobe 校验 → FFmpeg 音频提取 → 可选 faster-whisper 转写 | `chunks`（时间戳 + transcript 模态） |
+| 音频 (webm/wav/m4a/mp3/ogg) | FFprobe 校验 → FFmpeg 规范化 → 可选 faster-whisper 转写 | `chunks`（时间戳 + transcript 模态） |
 
 ### 3.5.1.1 解析流水线
 
 上传不是只保存文件，而是进入统一解析任务：
 
-> 当前实现：本地开发使用 SQLite，Compose 使用 PostgreSQL + pgvector；两种模式均通过后端文件目录保存上传内容。PDF / DOCX / PPTX / Markdown / TXT、图片 OCR 和启用后的 MP4 转写会写入 chunks 与 1024 维 embedding；扫描 PDF 仅对无文本页执行 OCR。PostgreSQL 走 pgvector 余弦检索，SQLite 走词法降级。BGE-M3、视频关键帧理解和异步任务仍待完整接入。
+> 当前实现：本地开发使用 SQLite，Compose 使用 PostgreSQL + pgvector；两种模式均通过后端文件目录保存上传内容。PDF / DOCX / PPTX / Markdown / TXT、图片 OCR、启用后的 MP4 和 WebM 等音频转写会写入 chunks 与 1024 维 embedding；扫描 PDF 仅对无文本页执行 OCR。PostgreSQL 走 pgvector 余弦检索，SQLite 走词法降级。BGE-M3、视频关键帧理解和异步任务仍待完整接入。
 
 ```
 POST /api/v1/materials/upload
@@ -701,7 +702,7 @@ created_at           action_json        excerpt (text)
 | PDF 预览 | **PDF.js** | 浏览器内交互式 PDF 阅读器 |
 | 状态管理 | Zustand + TanStack Query + **XState** | XState 管业务流程状态机（澄清→生成→质检→修改→导出） |
 | 表单 | React Hook Form + Zod | 性能 + 类型化校验 |
-| 语音输入 | Web Speech API + MediaRecorder + faster-whisper fallback | 满足文字/语音双输入，兼容浏览器能力差异 |
+| 语音输入 | Web Speech API + MediaRecorder + faster-whisper fallback | 浏览器优先实时识别；不支持时上传 WebM 等音频由后端转写，长录音异步化待接入 |
 | 前端测试 | **Vitest + TypeScript 检查 + 生产构建** | 已覆盖材料可用状态、上传格式和 chunk 来源标签；组件交互测试后续扩展 |
 | 后端框架 | **FastAPI** + Uvicorn | 异步 API，OpenAPI 自文档；比赛版单实例依赖更少 |
 | ORM | SQLAlchemy 2.x | 支持多种数据库，async 支持 |
@@ -778,6 +779,7 @@ created_at           action_json        excerpt (text)
 
 - `docs/OCR.md` — OCR 配置、运行边界与冒烟排障（已提供）
 - `docs/VIDEO.md` — 视频探测、音频提取和 Whisper 配置（已提供）
+- `docs/VOICE.md` — 澄清页语音输入、录音回退和排障（已提供）
 - `docs/GPS_INTEGRATION.md` — GPS 接入详细设计
 - `docs/PPTAGENT_INTEGRATION.md` — PPTAgent 接入详细设计
 - `docs/INTERACTIVE_CONTENT.md` — 动画 / 小游戏模板与导出设计

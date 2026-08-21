@@ -15,13 +15,12 @@ from app.schemas import ChunkResponse, MaterialDetailResponse, MaterialResponse
 from app.services.parsers.parser import ParsedChunk, parse
 from app.services.rag.embedder import embed_texts
 
-# Formats currently accepted by the API. The web client advertises the
-# text-extractable set (pdf/docx/pptx/md/txt); image/video and legacy Office
-# files are retained for backwards-compatible persistence with an explicit
-# parser warning until OCR/conversion/transcription is connected.
+# Formats currently accepted by the API. OCR, video and audio transcription
+# are optional capabilities with explicit warnings when their runtime is off;
+# legacy Office formats remain persistable while conversion is not connected.
 ALLOWED_EXTENSIONS = {
     "pdf", "doc", "docx", "ppt", "pptx", "md", "txt",
-    "png", "jpg", "jpeg", "mp4",
+    "png", "jpg", "jpeg", "mp4", "webm", "wav", "m4a", "mp3", "ogg",
 }
 
 

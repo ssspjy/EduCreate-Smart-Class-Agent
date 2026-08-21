@@ -244,7 +244,7 @@ export default function UploadPage() {
                 <Text strong style={{ fontSize: 15 }}>拖拽文件到此处，或点击选择文件</Text>
               </div>
               <Text type="secondary" style={{ fontSize: 12 }}>
-                支持 PDF / PPTX / DOCX / Markdown / 图片 / MP4，单文件 ≤ 50MB
+                支持 PDF / PPTX / DOCX / Markdown / 图片 / MP4 / 音频，单文件 ≤ 50MB
               </Text>
             </div>
 
