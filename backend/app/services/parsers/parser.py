@@ -31,7 +31,12 @@ class ParseResult:
 
 def _split_text(text: str, max_chars: int = 1200) -> list[str]:
     """Split extracted text into bounded chunks without cutting every paragraph."""
-    paragraphs = [p.strip() for p in text.splitlines() if p.strip()]
+    # PostgreSQL text columns reject NUL characters. PDFium/Tesseract and some
+    # malformed embedded fonts can emit them even when the source is readable.
+    # Normalize at the parser boundary so every downstream consumer receives
+    # database-safe UTF-8 text.
+    normalized_text = text.replace("\x00", "")
+    paragraphs = [p.strip() for p in normalized_text.splitlines() if p.strip()]
     chunks: list[str] = []
     current: list[str] = []
     current_len = 0

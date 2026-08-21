@@ -266,6 +266,50 @@ export const apiLogout = (): void => {
 export const apiListMaterials = (): Promise<Material[]> =>
   apiFetch<Material[]>("/materials");
 
+/** 订阅材料解析 SSE；调用方可保留现有轮询作为降级。 */
+export const apiSubscribeMaterialEvents = (
+  materialId: string,
+  onUpdate: (material: Material) => void,
+  onError?: (error: Error) => void,
+  onComplete?: () => void,
+): AbortController => {
+  const controller = new AbortController();
+  void (async () => {
+    try {
+      const token = localStorage.getItem("educreate-access-token");
+      const response = await fetch(`${API_BASE}/materials/${materialId}/events`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        signal: controller.signal,
+      });
+      if (!response.ok || !response.body) throw new Error(`SSE HTTP ${response.status}`);
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (!controller.signal.aborted) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const blocks = buffer.split("\n\n");
+        buffer = blocks.pop() || "";
+        for (const block of blocks) {
+          const line = block.split("\n").find((item) => item.startsWith("data: "));
+          if (!line) continue;
+          const material = JSON.parse(line.slice(6)) as Material;
+          onUpdate(material);
+          if (["parsed", "uploaded", "failed", "cancelled", "error"].includes(material.status)) {
+            onComplete?.();
+            controller.abort();
+            break;
+          }
+        }
+      }
+    } catch (error: unknown) {
+      if (!controller.signal.aborted) onError?.(error instanceof Error ? error : new Error(String(error)));
+    }
+  })();
+  return controller;
+};
+
 export const apiGetMaterial = (materialId: string): Promise<Material> =>
   apiFetch<Material>(`/materials/${materialId}`);
 

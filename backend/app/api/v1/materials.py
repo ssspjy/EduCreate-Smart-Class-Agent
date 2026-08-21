@@ -4,11 +4,17 @@
 支持 PDF / Word / PPT / 图片 / 视频。
 """
 
-from fastapi import APIRouter, UploadFile, File, Depends, status
+import asyncio
+import json
+import time
+
+from fastapi import APIRouter, UploadFile, File, Depends, Request, status, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.db import get_db
+from app.db import get_db, SessionLocal
 from app.core.security import require_user
+from app.models import Material
 from app.schemas import ChunkResponse, MaterialDetailResponse, MaterialResponse
 from app.services.material_service import (
     cancel_material_parse,
@@ -17,9 +23,42 @@ from app.services.material_service import (
     get_material_detail,
     list_material_chunks,
     list_materials,
+    _material_to_response,
 )
 
 router = APIRouter(dependencies=[Depends(require_user)])
+
+TERMINAL_STATUSES = {"parsed", "uploaded", "failed", "cancelled", "error"}
+SSE_MAX_SECONDS = 180
+
+
+@router.get("/{material_id}/events", summary="订阅材料解析 SSE 事件")
+async def material_events(material_id: str, request: Request, db: Session = Depends(get_db)) -> StreamingResponse:
+    """Stream material status/progress snapshots; clients may keep polling as fallback."""
+    if db.get(Material, material_id) is None:
+        raise HTTPException(status_code=404, detail="材料不存在")
+
+    async def event_stream():
+        deadline = time.monotonic() + SSE_MAX_SECONDS
+        while time.monotonic() < deadline:
+            if await request.is_disconnected():
+                break
+            with SessionLocal() as session:
+                material = session.get(Material, material_id)
+                if material is None:
+                    break
+                payload = _material_to_response(material).model_dump(mode="json")
+                status_value = material.status
+            yield f"event: material\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+            if status_value in TERMINAL_STATUSES:
+                break
+            await asyncio.sleep(1)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.post("/upload", response_model=MaterialResponse, summary="上传参考资料")

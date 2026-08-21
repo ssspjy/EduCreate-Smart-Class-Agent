@@ -35,6 +35,7 @@ import {
   apiDeleteMaterial,
   apiGetMaterialChunks,
   apiListMaterials,
+  apiSubscribeMaterialEvents,
   apiUploadMaterial,
 } from "../services/api";
 import { useWorkflowStore } from "../stores/workflow";
@@ -72,6 +73,7 @@ export default function UploadPage() {
   const navigate = useNavigate();
   const { materials, setMaterials, addMaterial, removeMaterial, setCurrentStep } = useWorkflowStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const eventControllersRef = useRef(new Map<string, AbortController>());
   const [stage, setStage] = useState<UploadStage>("idle");
   const [uploadingCount, setUploadingCount] = useState(0);
   const [failedFiles, setFailedFiles] = useState<UploadFailure[]>([]);
@@ -89,6 +91,17 @@ export default function UploadPage() {
     }
   }, [setMaterials]);
 
+  const subscribeMaterial = useCallback((materialId: string) => {
+    if (eventControllersRef.current.has(materialId)) return;
+    const controller = apiSubscribeMaterialEvents(
+      materialId,
+      (updated) => addMaterial(updated),
+      () => { /* SSE 失败时保留下方轮询降级，不打断上传流程。 */ },
+      () => eventControllersRef.current.delete(materialId),
+    );
+    eventControllersRef.current.set(materialId, controller);
+  }, [addMaterial]);
+
   useEffect(() => {
     let active = true;
     void apiListMaterials().then((serverMaterials) => {
@@ -100,6 +113,17 @@ export default function UploadPage() {
       active = false;
     };
   }, [setMaterials]);
+
+  useEffect(() => {
+    materials
+      .filter((item) => ["queued", "parsing", "cancelling"].includes(item.status))
+      .forEach((item) => subscribeMaterial(item.file_id));
+  }, [materials, subscribeMaterial]);
+
+  useEffect(() => () => {
+    eventControllersRef.current.forEach((controller) => controller.abort());
+    eventControllersRef.current.clear();
+  }, []);
 
   const hasActiveMaterials = materials.some((item) => ["queued", "parsing", "cancelling"].includes(item.status));
   useEffect(() => {
@@ -127,6 +151,7 @@ export default function UploadPage() {
       try {
         const mat = await apiUploadMaterial(file);
         addMaterial(mat);
+        if (["queued", "parsing", "cancelling"].includes(mat.status)) subscribeMaterial(mat.file_id);
         // The backend keeps a failed material record so the error remains inspectable.
         if (mat.status === "failed" || mat.status === "error") {
           failed.push({ filename: file.name, reason: mat.error_message || "服务器解析失败" });
@@ -154,7 +179,7 @@ export default function UploadPage() {
     if (newMaterials.length > 0) {
       message.success(`${newMaterials.length} 个文件上传成功${newMaterials.some((item) => item.can_cancel) ? "，正在后台解析" : ""}`);
     }
-  }, [addMaterial]);
+  }, [addMaterial, subscribeMaterial]);
 
   // 拖拽文件时触发上传
   const handleDrop = useCallback(async (e: DragEvent<HTMLDivElement>) => {

@@ -20,7 +20,7 @@ Docker Compose 中，后端只完成文件校验、持久化和任务发布，Re
 }
 ```
 
-前端每 1.5 秒调用 `GET /api/v1/materials`；也可用 `GET /api/v1/materials/{file_id}` 查询单条记录。状态流转如下：
+前端优先通过 `GET /api/v1/materials/{file_id}/events` 订阅 SSE 事件；每条事件的格式为 `event: material`，`data` 是完整材料状态 JSON。连接失败、超时或浏览器不支持流式读取时，前端保留每 1.5 秒调用 `GET /api/v1/materials` 的轮询降级；也可用 `GET /api/v1/materials/{file_id}` 查询单条记录。状态流转如下：
 
 ```text
 queued → parsing → parsed
@@ -28,6 +28,12 @@ queued → parsing → parsed
                  → failed
 queued → cancelled
 parsing → cancelling → cancelled
+```
+
+SSE 连接在材料进入 `parsed`、`uploaded`、`failed`、`cancelled` 或 `error` 等终态后自动结束，服务端单次连接最长保持 180 秒。该接口只读数据库状态，不改变任务处理语义；轮询和 SSE 可以安全并存。示例：
+
+```powershell
+curl.exe -N "http://localhost:8000/api/v1/materials/<file_id>/events"
 ```
 
 `POST /api/v1/materials/{file_id}/cancel` 会撤销尚未开始的 Celery 任务并将其标为 `cancelled`。已经运行的 OCR/转写进入 `cancelling`，不会被强杀，而是在解析和 embedding 安全检查点读取 `cancel_requested` 后确认 `cancelled`，避免留下半写入 chunks。活动或 `cancelling` 任务直接删除会返回 HTTP 409，应等待取消完成再删除。
@@ -75,4 +81,5 @@ docker compose logs --tail=100 worker
 - 长期 `queued`：检查 worker 是否在线、是否能连接 Redis，以及任务名 `materials.parse` 是否已注册。
 - 长期 `parsing`：检查 OCR/FFmpeg/Whisper 日志和任务时间上限；Worker 异常退出后，`acks_late` 会让未确认任务重新投递。
 - `failed`：读取 `error_message` 和 worker traceback；损坏文件不会自动伪造 chunks。
+- PDF/OCR 文本中的 NUL 控制字符会在解析和持久化边界自动清理，避免 PostgreSQL 文本列报错；若仍失败，优先查看 worker 的原始 traceback。
 - 取消后 CPU 仍短时占用：运行中的外部解析在最近安全检查点结束，不使用强制终止，以保护数据库和子进程清理。

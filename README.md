@@ -53,7 +53,7 @@ EduCreate-Smart-Class-Agent/
 | 任务队列 | Compose 使用 Redis + Celery；本地默认同步解析 |
 | 重排 | 词法/向量基础召回；bge-reranker-v2-m3 待接入 |
 | PPTX 导出 | 后端 `python-pptx` |
-| 通信 | REST API；SSE 作为后续生成进度增强 |
+| 通信 | REST API；材料解析支持 SSE，轮询作为降级 |
 | 容器化 | Docker Compose |
 
 > 比赛版遵循“核心闭环真实可用、部署依赖最少化”的原则。Compose 已用 Redis / Celery 承担 OCR、视频和音频解析；本地 SQLite 开发仍可同步解析。MinIO、WebTransport 不作为比赛交付硬依赖。
@@ -201,8 +201,8 @@ npm audit
 - [ ] 互动内容 Jinja2 模板生成
 - [x] 教师修改意见 → 结构化动作 → 预览页确认 → 再生成闭环
 - [x] 选择题 / 判断题 / 填空题固定模板生成与 sandbox 预览
-- [x] OCR / 视频 / 音频解析接入 Redis + Celery，前端轮询任务进度并支持取消
-- [ ] 使用 SSE 替代材料状态轮询，并扩展到课件生成任务
+- [x] OCR / 视频 / 音频解析接入 Redis + Celery，前端支持 SSE 任务进度、轮询降级并支持取消
+- [ ] 将 SSE 进度流扩展到课件生成任务
 
 ## 当前验证结果
 
@@ -218,10 +218,10 @@ npm audit
 pytest -q
 ```
 
-结果（阶段十三验证）：
+结果（阶段十四验证）：
 
 - 前端 Vitest `5 passed`，TypeScript 检查和 Vite 生产构建通过。
-- 后端测试通过：`83 passed`；仍有 `datetime.utcnow()` 弃用警告，不影响当前结果。
+- 后端测试通过：`86 passed`；仍有 `datetime.utcnow()` 弃用警告，不影响当前结果。
 - Compose 中 `postgres`、`redis`、`backend`、`worker`、`frontend` 已实际启动并通过健康检查或任务消费检查。
 - 已用无文本层 PDF 验证 Docker 内中英文 Tesseract 运行链路，OCR chunk 带页码和模态信息。
 - 已在 Docker 容器内生成并上传带音轨的 MP4，FFprobe/FFmpeg 链路通过；默认关闭 Whisper 时保留视频并返回明确 warning，不生成虚假字幕。
@@ -234,7 +234,7 @@ pytest -q
 
 - GPS、动态大纲、规则质检、PPTX 导出和互动内容生成已有可运行实现；PPTAgent 当前支持 PPTX 结构统计、教师自然语言意见改写、章节顺序/要点编辑、三种固定主题和导出版本记录，LLM 增强与复杂自由排版仍是后续增强。
 - `/knowledge/search` 在 PostgreSQL 上已使用 chunks 的 pgvector 余弦检索；本地 SQLite 或未安装 BGE 模型时使用确定性的 hash embedding/词法降级。
-- Compose 中 OCR、视频和音频解析由单并发 Celery worker 执行；进度当前通过材料列表轮询，SSE 属于后续增强。本地开发默认同步执行以保持零额外服务依赖。
+- Compose 中 OCR、视频和音频解析由单并发 Celery worker 执行；材料解析同时提供 SSE 事件流和材料列表轮询降级，课件生成 SSE 属于后续增强。本地开发默认同步执行以保持零额外服务依赖。
 - 视频转写默认不下载模型；启用后由 Worker 使用持久化模型卷，仍需在赛前监控模型缓存和单任务耗时。
 - 本地直接运行默认使用 SQLite，数据位于 `backend/data/` 与 `backend/uploads/`；Docker 使用 PostgreSQL 和命名卷，测试数据位于 `backend/tests/_tmp/`。
 - 比赛版正式 PPT 导出路径是后端 `python-pptx`；PptxGenJS 仅保留为未来浏览器内编辑的候选方案。

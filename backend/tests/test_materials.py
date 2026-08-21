@@ -18,6 +18,12 @@ from app.services.parsers.ocr import OCRResult
 from app.services.parsers.video import TranscriptSegment, VideoParseResult
 
 
+def test_text_splitter_removes_nul_characters() -> None:
+    chunks = parser_module._split_text("第一段\x00仍是同一段\n第二段")
+
+    assert chunks == ["第一段仍是同一段\n第二段"]
+
+
 def test_upload_image_is_persisted_without_fake_chunks(client: TestClient) -> None:
     response = client.post(
         "/api/v1/materials/upload",

@@ -169,7 +169,9 @@ async def parse_material_record(db: Session, material_id: str) -> MaterialRespon
         parsed_contents: list[str] = []
         parsed_items: list[tuple[int, ParsedChunk]] = []
         for chunk_index, parsed_chunk in enumerate(parse_result.chunks):
-            content = parsed_chunk.content.strip()
+            # Keep the persistence boundary defensive for third-party parsers
+            # and OCR providers that may bypass the shared text splitter.
+            content = parsed_chunk.content.replace("\x00", "").strip()
             if not content:
                 continue
             parsed_contents.append(content)

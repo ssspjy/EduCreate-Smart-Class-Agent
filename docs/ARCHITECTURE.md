@@ -90,7 +90,7 @@
 - **文件存储**：原始资料与生成成果使用后端目录和 Docker 命名卷，减少比赛环境依赖
 - **本地开发**：允许继续使用 SQLite，保证无需 Docker 也能开发和运行测试
 - **数据库迁移**：Alembic 作为结构版本控制；后端容器启动前自动升级，旧 `create_all` 数据卷会先标记基线再迁移
-- **任务状态**：`materials` 保存队列 ID、进度和取消标记，前端当前轮询 SQL 状态；SSE 作为后续推送增强
+- **任务状态**：`materials` 保存队列 ID、进度和取消标记；前端通过 `GET /api/v1/materials/{id}/events` 订阅 SSE 实时状态，连接异常时回退到材料列表轮询
 - **非比赛硬依赖**：MinIO、Gunicorn 多 Worker、WebSocket / WebTransport 和独立实时网关均放入后续演进，不作为当前完成度声明
 
 ---
@@ -234,7 +234,7 @@ BGE-M3 embedding + pgvector upsert
         ↓
 materials.status = parsed / uploaded / failed / cancelling / cancelled
         ↓
-前端轮询状态、进度与 warning；SSE 推送待接入
+前端优先订阅材料 SSE 状态、进度与 warning，连接失败或浏览器不支持时回退到轮询；课件生成任务的 SSE 仍待接入
 ```
 
 每个 parser 至少返回统一结构：
@@ -799,4 +799,4 @@ created_at           action_json        excerpt (text)
 - `docs/ASYNC_TASKS.md` — 材料解析任务、状态 API、迁移和 Worker 排障（已提供）
 - `docs/INTERACTIVE.md` — 互动题型 API、模板边界和排障（已提供）
 
-GPS、PPTAgent、参考资料绑定和完整 API 参考目前仍以内嵌章节及 FastAPI `/docs` 为准；互动内容的独立使用说明见 `docs/INTERACTIVE.md`。
+GPS、PPTAgent、参考资料绑定和完整 API 参考目前仍以内嵌章节及 FastAPI `/docs` 为准；互动内容的独立使用说明见 `docs/INTERACTIVE.md`，材料 SSE 的接入说明见 `docs/ASYNC_TASKS.md`。
