@@ -14,9 +14,10 @@
 
 ## 架构边界
 
-- Compose 当前包含 frontend、backend、PostgreSQL + pgvector，以及材料解析实际使用的 Redis、Celery worker；不要在没有真实业务消费者时加入 MinIO 或更多中间件。
+- Compose 当前包含 frontend、backend、PostgreSQL + pgvector，以及材料解析和 PPTX 生成实际使用的 Redis、Celery worker；不要在没有真实业务消费者时加入 MinIO 或更多中间件。
 - 本地开发默认 SQLite，Compose 使用 PostgreSQL；数据库代码和测试必须兼容两种模式。
 - PPTX 和 DOCX 由后端固定生成器产生，不执行 LLM 返回的代码。
+- Compose 中 PPTX 生成必须先持久化 `generation_jobs`，再由 Celery 执行；SSE 和轮询都以 SQL 状态为准。
 - OCR 仅处理图片及 PDF 无文本页，失败必须降级为 warning，不能导致已有文本解析失败。
 - OCR 参数必须保留页数、DPI、像素、超时和并发边界；Compose 中 OCR、视频和音频解析必须通过 Celery worker，不得退回 Web 请求内长时间执行。
 - 视频转写默认关闭模型下载；必须先通过 FFprobe/FFmpeg 校验和提取音频，失败只返回 warning，不生成虚假字幕。

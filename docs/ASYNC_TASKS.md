@@ -82,4 +82,4 @@ docker compose logs --tail=100 worker
 - 长期 `parsing`：检查 OCR/FFmpeg/Whisper 日志和任务时间上限；Worker 异常退出后，`acks_late` 会让未确认任务重新投递。
 - `failed`：读取 `error_message` 和 worker traceback；损坏文件不会自动伪造 chunks。
 - PDF/OCR 文本中的 NUL 控制字符会在解析和持久化边界自动清理，避免 PostgreSQL 文本列报错；若仍失败，优先查看 worker 的原始 traceback。
-- 取消后 CPU 仍短时占用：运行中的外部解析在最近安全检查点结束，不使用强制终止，以保护数据库和子进程清理。
+- 取消后 CPU 仍短时占用：运行中的外部解析会在下一个安全检查点结束，不使用强制终止，以保护数据库和子进程清理。

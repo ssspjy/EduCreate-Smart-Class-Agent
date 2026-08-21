@@ -219,6 +219,25 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
+export interface GenerationJob {
+  job_id: string;
+  lesson_id: string;
+  job_type: "pptx";
+  status: "queued" | "generating" | "completed" | "failed";
+  progress: number;
+  task_id?: string | null;
+  output?: {
+    url: string;
+    filename: string;
+    artifact_id?: string | null;
+    version?: number | null;
+    warnings?: string[];
+  } | null;
+  error_message?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 // ── 参考资料 ──────────────────────────────────────────────────────────────────
 
 export const apiUploadMaterial = (file: File): Promise<Material> => {
@@ -496,6 +515,60 @@ export const apiExportDOCX = (outline: Outline): Promise<{ url: string }> =>
     method: "POST",
     body: JSON.stringify(outline),
   });
+
+export const apiCreatePptxJob = (
+  outline: Outline,
+  lessonId: string,
+  actions: PptEditAction[] = [],
+): Promise<GenerationJob> => apiFetch<GenerationJob>("/exports/pptx/jobs", {
+  method: "POST",
+  body: JSON.stringify({ ...outline, lesson_id: lessonId, actions }),
+});
+
+export const apiGetGenerationJob = (jobId: string): Promise<GenerationJob> =>
+  apiFetch<GenerationJob>(`/exports/jobs/${jobId}`);
+
+/** Subscribe to PPTX generation events; callers retain REST polling fallback. */
+export const apiSubscribeGenerationJob = (
+  jobId: string,
+  onUpdate: (job: GenerationJob) => void,
+  onError?: (error: Error) => void,
+): AbortController => {
+  const controller = new AbortController();
+  void (async () => {
+    try {
+      const token = localStorage.getItem("educreate-access-token");
+      const response = await fetch(`${API_BASE}/exports/jobs/${jobId}/events`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+        signal: controller.signal,
+      });
+      if (!response.ok || !response.body) {
+        throw new Error(`SSE 连接失败：HTTP ${response.status}`);
+      }
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+        let boundary = buffer.indexOf("\n\n");
+        while (boundary >= 0) {
+          const block = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + 2);
+          const data = block.split("\n").find((line) => line.startsWith("data: "));
+          if (data) onUpdate(JSON.parse(data.slice(6)) as GenerationJob);
+          boundary = buffer.indexOf("\n\n");
+        }
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) {
+        onError?.(error instanceof Error ? error : new Error(String(error)));
+      }
+    }
+  })();
+  return controller;
+};
 
 // ── GPS DAG ────────────────────────────────────────────────────────────────────
 

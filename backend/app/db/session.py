@@ -61,6 +61,7 @@ def init_db() -> None:
     Base.metadata.create_all(bind=engine)
     _ensure_embedding_column()
     _ensure_material_task_columns()
+    _ensure_generation_job_columns()
 
 
 def _ensure_embedding_column() -> None:
@@ -105,4 +106,28 @@ def _ensure_material_task_columns() -> None:
             ))
         connection.execute(text(
             "CREATE INDEX IF NOT EXISTS ix_materials_task_id ON materials (task_id)"
+        ))
+
+
+def _ensure_generation_job_columns() -> None:
+    """Keep existing local SQLite generation_jobs tables compatible."""
+    inspector = inspect(engine)
+    if "generation_jobs" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("generation_jobs")}
+    additions = {
+        "job_type": "VARCHAR(32) NOT NULL DEFAULT 'pptx'",
+        "progress": "INTEGER NOT NULL DEFAULT 0",
+        "task_id": "VARCHAR(255)",
+        "request_json": "JSON NOT NULL DEFAULT '{}'",
+        "error_message": "TEXT",
+    }
+    with engine.begin() as connection:
+        for column_name, definition in additions.items():
+            if column_name not in columns:
+                connection.execute(text(
+                    f"ALTER TABLE generation_jobs ADD COLUMN {column_name} {definition}"
+                ))
+        connection.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_generation_jobs_task_id ON generation_jobs (task_id)"
         ))

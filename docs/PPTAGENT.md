@@ -44,7 +44,7 @@ Invoke-RestMethod -Method Post `
 
 ## 导出与版本
 
-`POST /api/v1/exports/pptx` 可在大纲中携带 `lesson_id` 和 `actions`。动作先由白名单执行器应用，再由固定生成器写入 PPTX；提供 `lesson_id` 时会在 `generated_artifacts` 记录递增的 `version` 和受控存储路径。前端预览页的章节上移/下移按钮使用同一接口。
+`POST /api/v1/exports/pptx` 保留为同步兼容接口。预览页使用 `POST /api/v1/exports/pptx/jobs` 创建持久化任务，Compose 交给 Celery 执行，并通过 SSE 展示进度；动作先由白名单执行器应用，再由固定生成器写入 PPTX。成功后在 `generated_artifacts` 记录递增的 `version` 和受控存储路径。任务 API 与排障见 [`GENERATION_TASKS.md`](./GENERATION_TASKS.md)。
 
 ## 排障
 

@@ -10,7 +10,7 @@ celery_app = Celery(
     "educreate",
     broker=settings.celery_broker_url,
     backend=settings.celery_result_backend,
-    include=["app.tasks.materials"],
+    include=["app.tasks.materials", "app.tasks.generation"],
 )
 celery_app.conf.update(
     task_track_started=True,

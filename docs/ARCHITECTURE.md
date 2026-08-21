@@ -15,7 +15,7 @@
 **工程化说明**：这是比赛级纯 Web 应用，架构以“核心闭环真实可用、现场部署稳定、依赖最少化”为决策顺序。在保留两篇论文核心范式（DAG 主动追问 + 编辑式 PPT 生成）的基础上做如下取舍：
 - GPS：保留**追问闭环 + DAG 可视化**作为展示点，去掉强化学习训练链路（比赛不要求训模型）
 - PPTAgent：比赛版用后端 **python-pptx** 从受校验的结构化大纲生成 PPTX，PptxGenJS 仅作为后续浏览器内编辑候选（详见 §5.3）
-- 部署：只把已被业务真实使用的服务纳入比赛运行时；PostgreSQL + pgvector 是 Compose 数据层，Redis / Celery 已承担材料解析，MinIO 与独立实时网关不作为比赛版硬依赖
+- 部署：只把已被业务真实使用的服务纳入比赛运行时；PostgreSQL + pgvector 是 Compose 数据层，Redis / Celery 已承担材料解析和 PPTX 生成，MinIO 与独立实时网关不作为比赛版硬依赖
 
 ---
 
@@ -43,7 +43,7 @@
    │ PPTAgent 课件生成                     │
    │   - 参考 PPT 分析（cluster + schema）│
    │   - Outline 生成                       │
-   │   - HTML 中间层编辑                    │
+   │   - 结构化动作编辑                     │
    │   - PPTX / Word 导出                  │
    └───────────────────────────────────────┘
                 ↓
@@ -54,7 +54,7 @@
 
 ## 2. 部署拓扑
 
-> 本项目采用 **Docker Compose** 一键部署当前比赛运行时：前端、后端、材料解析 worker、Redis、PostgreSQL + pgvector。上传资料、Redis 消息和模型缓存使用 Docker 持久化卷。
+> 本项目采用 **Docker Compose** 一键部署当前比赛运行时：前端、后端、材料解析与 PPTX 生成 worker、Redis、PostgreSQL + pgvector。上传资料、生成成果、Redis 消息和模型缓存使用 Docker 持久化卷。
 
 ```
 ┌───────────────────────────────────────────────────────────┐
@@ -85,12 +85,12 @@
 
 - **前端**：Nginx 托管 React 构建产物，并把 `/api/*` 反向代理到后端
 - **后端**：比赛版使用 Uvicorn 部署 FastAPI；上传落盘后发布材料任务，GPS、大纲、质检和导出从统一 REST API 提供
-- **Redis + Celery worker**：Redis 持久化待消费任务；单并发 worker 执行 OCR、FFmpeg 和 Whisper，和后端共享上传卷与 SQL 状态
+- **Redis + Celery worker**：Redis 持久化待消费任务；单并发 worker 执行 OCR、FFmpeg、Whisper 和 PPTX 固定生成器，和后端共享上传卷与 SQL 状态
 - **PostgreSQL + pgvector**：Compose 的正式数据层；chunks 已写入 1024 维向量并建立 HNSW 索引，支持余弦检索。BGE-M3 为可选 provider，未安装模型时使用 hash embedding 降级
 - **文件存储**：原始资料与生成成果使用后端目录和 Docker 命名卷，减少比赛环境依赖
 - **本地开发**：允许继续使用 SQLite，保证无需 Docker 也能开发和运行测试
 - **数据库迁移**：Alembic 作为结构版本控制；后端容器启动前自动升级，旧 `create_all` 数据卷会先标记基线再迁移
-- **任务状态**：`materials` 保存队列 ID、进度和取消标记；前端通过 `GET /api/v1/materials/{id}/events` 订阅 SSE 实时状态，连接异常时回退到材料列表轮询
+- **任务状态**：`materials` 保存解析队列状态，`generation_jobs` 保存 PPTX 请求、进度和产物；前端分别订阅材料与生成 SSE，连接异常时回退到 REST 轮询
 - **非比赛硬依赖**：MinIO、Gunicorn 多 Worker、WebSocket / WebTransport 和独立实时网关均放入后续演进，不作为当前完成度声明
 
 ---
@@ -107,7 +107,7 @@
 | `flow/` | 算法关系图、流程结构展示 | React Flow |
 | `features/` | 业务功能模块 | 业务组件 |
 | `features/voice-input/` | 教师语音输入、录音状态、转写结果确认 | Web Speech API + MediaRecorder fallback |
-| `services/` | API 调用；SSE 进度推送待异步任务接入 | Fetch + TanStack Query |
+| `services/` | API 调用；材料解析和 PPTX 生成 SSE，REST 轮询降级 | Fetch + TanStack Query |
 | `stores/` | 全局状态 | Zustand |
 | `state/` | 业务流程状态机 | **XState**（澄清 → 解析 → 蓝图 → 生成 → 质检 → 修改 → 导出） |
 | `preview/` | PDF 预览 | PDF.js |
@@ -153,7 +153,7 @@ backend/
 │   │   │   └── ppteval.py      # 视觉质检（Content/Design/Coherence）
 │   │   ├── parsers/            # 文档解析 + OCR + FFmpeg/可选 Whisper
 │   │   └── generators/         # python-docx（教案）+ Jinja2（模板）
-│   ├── tasks/                   # Celery 材料解析任务
+│   ├── tasks/                   # Celery 材料解析与 PPTX 生成任务
 │   ├── worker.py                # Celery 应用与队列配置
 │   ├── db/                     # PostgreSQL + Alembic 迁移
 │   └── utils/
@@ -194,7 +194,7 @@ LLM 不直接散落在业务代码中调用，统一经过 `services/llm/provide
 
 ### 3.4 模块依赖与初始化顺序
 
-比赛版启动依赖为 PostgreSQL/pgvector + Redis → FastAPI 自动迁移 → Celery worker + Nginx。Docker Compose 使用 healthcheck 保证顺序。本地开发使用 SQLite 且 `MATERIAL_ASYNC_ENABLED=false` 时，后端可独立启动。
+比赛版启动依赖为 PostgreSQL/pgvector + Redis → FastAPI 自动迁移 → Celery worker + Nginx。Docker Compose 使用 healthcheck 保证顺序。本地开发使用 SQLite 且 `MATERIAL_ASYNC_ENABLED=false`、`GENERATION_ASYNC_ENABLED=false` 时，后端可独立启动。
 
 ---
 
@@ -234,7 +234,7 @@ BGE-M3 embedding + pgvector upsert
         ↓
 materials.status = parsed / uploaded / failed / cancelling / cancelled
         ↓
-前端优先订阅材料 SSE 状态、进度与 warning，连接失败或浏览器不支持时回退到轮询；课件生成任务的 SSE 仍待接入
+前端优先订阅材料 SSE 状态、进度与 warning，连接失败或浏览器不支持时回退到轮询
 ```
 
 每个 parser 至少返回统一结构：
@@ -507,19 +507,7 @@ PptxGenJS 不再是比赛版运行时依赖；只有在后续确认需要浏览�
 
 ### 5.5 PPTAgent 编排节点（当前比赛版）
 
-当前阶段不引入 LangGraph 运行时，采用可审计的 HTTP 服务编排：
-
-```python
-graph.add_node("ppt_analyzer", ppt_analyzer_node)        # Stage I：分析参考
-graph.add_node("ppt_outliner", ppt_outliner_node)        # Outline 生成
-graph.add_node("ppt_slide_gen", ppt_slide_gen_node)       # 循环生成每张
-graph.add_node("ppt_executor", ppt_executor_node)        # python-pptx 执行 + self-correction
-graph.add_node("ppt_quality", ppt_quality_node)          # PPTEVAL 质检
-```
-
-实际入口为 `POST /api/v1/pptagent/analyze-reference`（读取已解析的 PPTX）和
-`POST /api/v1/pptagent/apply-actions`（校验并应用结构化动作）。导出接口可携带
-`lesson_id` 生成 `GeneratedArtifact` 版本记录；预览页提供章节上移/下移操作。
+当前阶段不引入 LangGraph 运行时，采用可审计的 HTTP 服务编排。参考分析入口为 `POST /api/v1/pptagent/analyze-reference`，结构化动作入口为 `POST /api/v1/pptagent/apply-actions`。预览页通过 `POST /api/v1/exports/pptx/jobs` 创建任务，Celery 调用固定 python-pptx 生成器；`GET /api/v1/exports/jobs/{job_id}/events` 推送 SQL 任务状态，REST 查询作为降级。成功后生成 `GeneratedArtifact` 版本记录。
 
 ### 5.6 Self-correction 闭环（边界）
 
@@ -574,7 +562,7 @@ PPTEVAL 局部复检
 
 ### 5.7 PPTEVAL 评估
 
-三维评分（1-5 分），用 Qwen2-VL 做多模态 judge：
+当前质检使用可解释规则对大纲做三维评分；Qwen2-VL 多模态页面评审属于后续增强：
 
 | 维度 | 标准 |
 |---|---|
@@ -582,7 +570,7 @@ PPTEVAL 局部复检
 | **Design** | 色彩和谐，有几何/图标/图像等视觉元素，避免重叠 |
 | **Coherence** | 故事线流畅，含背景信息（讲者/日期/致谢） |
 
-与人类评分 Pearson 相关性 0.71，可作为自动质检依据。
+当前规则结果用于比赛演示和教师确认，不声明与人类评分的统计相关性。
 
 ---
 
@@ -675,11 +663,11 @@ slot_filling        lesson_irs          generation_jobs     quality_reports
 ────────────         ──────────          ────────────────   ──────────────
 id (PK)              id (PK)             id (PK)            id (PK)
 lesson_id (FK)       lesson_id (FK)      lesson_id (FK)      job_id (FK)
-filled_slots (jsonb) slots (jsonb)        status              scores (jsonb)
-dag_snapshot (jsonb) dag_snapshot (jsonb) output_json         created_at
-created_at           created_at          created_at
-                     version             retry_count
-                     version
+filled_slots (jsonb) slots (jsonb)        job_type/status     scores (jsonb)
+dag_snapshot (jsonb) dag_snapshot (jsonb) progress/task_id    created_at
+created_at           created_at          request_json
+                     version             output_json/error
+                                         created_at/retry_count
 
 generated_artifacts  edit_requests       rag_evidences
 ─────────────────    ────────────────   ──────────────
@@ -700,7 +688,7 @@ created_at           action_json        excerpt (text)
 - `chunks.vector` 使用 **pgvector**（余弦相似度 / 欧氏距离），`chunks.token_count` 用于估算上下文大小
 - `rag_evidences.bbox` 为 JSONB，存页内坐标区域
 - `lesson_irs.slots` / `dag_snapshot` 使用 JSONB 内联（去掉了 dag_nodes / dag_edges 独立表）
-- `generation_jobs.output_json` 内联 PPT 生成结果（去掉了 ppt_outlines / ppt_versions 独立表）
+- `generation_jobs.request_json` 保存受校验输入，`output_json` 保存下载地址和产物版本；SQL 状态是 Celery/SSE/轮询共同的事实来源
 - `generated_artifacts.version` 与 `edit_requests.from_artifact_id` 支持教师修改后的版本回退
 - `edit_requests.action_json` 存 LLM 改写后的结构化编辑动作，便于复现和审计
 - Alembic 管理 schema 版本迁移
@@ -726,32 +714,32 @@ created_at           action_json        excerpt (text)
 | 数据库 | **PostgreSQL** + pgvector | 关系数据 + 向量检索一体，ACID 支持 |
 | 向量索引 | pgvector HNSW | 比赛数据规模足够，避免无实际收益的 GPU 索引依赖 |
 | 全文检索 | PostgreSQL 全文搜索 | 内置，无需额外服务 |
-| 缓存 / 任务队列 | Redis 7 + Celery 5 | 已用于 OCR / 视频 / 音频材料解析；SQL 保存业务状态 |
+| 缓存 / 任务队列 | Redis 7 + Celery 5 | 已用于材料解析和 PPTX 固定生成器；SQL 保存业务状态 |
 | 部署 | **Docker Compose** + **Nginx** | 一键部署，负载均衡，静态托管 |
 | 后端测试 | **Pytest** | 单元测试 + 集成测试 |
 | OCR | **pypdfium2 + Pillow + Tesseract** | 仅处理图片和 PDF 无文本页；Docker 内置中英文语言包并设置资源边界 |
 | 视频转写 | **FFmpeg + faster-whisper（可选）** | 默认不下载模型；模型路径显式配置，避免上传请求隐式联网和资源失控 |
 | Embedding | **BGE-M3**（中文 dense / sparse / multi-vector 三路召回） | 多语言，文本检索主力 |
-| 视觉检索 | **ColPali**（PDF / PPT 页面图像细粒度视觉检索） | 图像型资料的语义定位 |
-| 重排 | **bge-reranker-v2-m3** | 检索后重排序，提升相关性 |
+| 视觉检索 | **ColPali（后续增强）** | 当前不进入比赛运行时 |
+| 重排 | **bge-reranker-v2-m3（后续增强）** | 当前使用词法/向量基础召回 |
 | 检索策略 | 混合全双工搜索（全文 + 向量 + rerank） | 双层答案匹配，兼顾精确与语义 |
 | LLM 框架 | 自有 provider 抽象层 | 已实现 DeepSeek / OpenAI-compatible 调用、重试和结构化输出；暂不引入未使用框架 |
 | LLM 调用 | DeepSeek 主模型 + OpenAI-compatible fallback + **Structured Output** | 结构化输出，确保 JSON Schema 合规 |
 | 可观测性 | 结构化日志；Langfuse 为后续增强 | 比赛版减少外部服务依赖 |
-| 视觉质检 | **Qwen2-VL**（多模态 judge） | PPTEVAL Content/Design/Coherence 评分 |
+| 视觉质检 | **规则质检；Qwen2-VL 后续增强** | 当前对大纲做清晰度、覆盖度、互动性评分 |
 | PPT 操作 | **服务端 python-pptx** | 已完成生成与下载闭环，比赛现场稳定可控 |
 | PDF 转换 | **LibreOffice Headless** | PPT/DOCX → PDF 渲染预览 |
 | 文档生成 | **python-docx**（教案）+ **Jinja2**（模板引擎） | 动态 Word 文档，HTML/文本合并到结构化文档 |
 | 信息图表 | **ECharts / Mermaid** | 动态生成信息图表，实时渲染可视化数据 |
 | Word 文档 | **OOXML 文档规范** | 生成含表格、流程、方法、代码的文档 |
-| 实时通信 | **WebSocket + SSE** | 双向实时推送 + 进度流推送 |
+| 实时通信 | **SSE + REST 轮询降级** | 材料解析和 PPTX 生成进度；无需独立实时网关 |
 | **需求澄清** | **固定槽位 + 动态追问 + DAG 可视化** | 可演示，无训练成本 |
 | **PPT 生成** | **受校验大纲 → python-pptx → .pptx** | LLM 不执行代码，后端统一生成、存储和下载 |
 | Word 生成 | **python-docx**（服务端） | 标准库，够用 |
-| 互动内容 | **HTML5 模板 + LLM JSON 填充** | 4 种模板（动画/选择题/拖拽/卡片），浏览器侧渲染 |
+| 互动内容 | **Jinja2 固定模板 + 结构化大纲** | 选择题、判断题、填空题三种模板，sandbox iframe 预览 |
 | GIF 导出 | **gif.js**（浏览器侧 Web Worker） | 动画 → 静态动图 |
 | MP4 导出 | **MediaRecorder API** | 动画 → 短视频 |
-| **视觉质检** | **PPTEVAL + self-correction 最多 2 轮** | 与人类评估一致 |
+| **视觉质检** | **规则质检；PPTEVAL/self-correction 后续增强** | 当前优先保证可解释和稳定 |
 | **数据流采集** | **MockRecorder.js**（开发调试） | 记录虚拟操作序列，调试 LLM 输入用，**不进生产** |
 | **开发辅助** | **Cursor / Claude-Code**（开发期 IDE） | 通用多模态对话 AI 平台，仅开发阶段使用，**非运行时依赖** |
 | 鉴权 | JWT（可配置） | `AUTH_REQUIRED=true` 时校验签名 token；细粒度 RBAC 仍待补齐 |
@@ -783,7 +771,7 @@ created_at           action_json        excerpt (text)
 ### 9.2 LLM 调用安全
 
 - **API 白名单**：LLM 调用仅限内部服务发起，不暴露客户端；后端对 LLM 返回内容做 JSON Schema 校验
-- **超时限制**：LLM 调用超时 60s，生成任务超时 300s，超时自动取消
+- **超时限制**：LLM 调用设置请求超时；PPTX 生成任务设置 300s 软限制和 330s 硬限制，异常写入任务失败状态
 - **资源限制**：图片 URL 必须属于白名单域名；文件上传大小受限
 - **内容过滤**：Prompt 层面防御提示词注入
 - **PPT 生成边界**：Pydantic / JSON Schema 限定 slides 数组最大长度（50 页）和单页最大文字量（2000 字符）
@@ -797,6 +785,7 @@ created_at           action_json        excerpt (text)
 - `docs/VIDEO.md` — 视频探测、音频提取和 Whisper 配置（已提供）
 - `docs/VOICE.md` — 澄清页语音输入、录音回退和排障（已提供）
 - `docs/ASYNC_TASKS.md` — 材料解析任务、状态 API、迁移和 Worker 排障（已提供）
+- `docs/GENERATION_TASKS.md` — PPTX 生成任务、SSE、轮询降级和运维说明（已提供）
 - `docs/INTERACTIVE.md` — 互动题型 API、模板边界和排障（已提供）
 
-GPS、PPTAgent、参考资料绑定和完整 API 参考目前仍以内嵌章节及 FastAPI `/docs` 为准；互动内容的独立使用说明见 `docs/INTERACTIVE.md`，材料 SSE 的接入说明见 `docs/ASYNC_TASKS.md`。
+GPS、PPTAgent、参考资料绑定和完整 API 参考目前仍以内嵌章节及 FastAPI `/docs` 为准；互动内容说明见 `docs/INTERACTIVE.md`，材料与生成任务说明分别见 `docs/ASYNC_TASKS.md` 和 `docs/GENERATION_TASKS.md`。

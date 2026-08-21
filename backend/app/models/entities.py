@@ -105,14 +105,19 @@ class LessonIR(Base):
 
 
 class GenerationJob(Base):
-    """Async generation job placeholder."""
+    """Persisted asynchronous courseware generation job."""
 
     __tablename__ = "generation_jobs"
 
     id = Column(String(36), primary_key=True, default=new_id)
     lesson_id = Column(String(36), ForeignKey("lessons.id"), nullable=False, index=True)
+    job_type = Column(String(32), nullable=False, default="pptx")
     status = Column(String(32), nullable=False, default="queued", index=True)
+    progress = Column(Integer, nullable=False, default=0)
+    task_id = Column(String(255), nullable=True, index=True)
+    request_json = Column(JSON, nullable=False, default=dict)
     output_json = Column(JSON, nullable=True)
+    error_message = Column(Text, nullable=True)
     retry_count = Column(Integer, nullable=False, default=0)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)

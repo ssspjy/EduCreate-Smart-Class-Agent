@@ -5,13 +5,16 @@
 - GET  /exports/{filename} — 下载已生成的 PPTX 文件
 """
 
+import asyncio
+import json
 import logging
 import os
 import re
+import time
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -20,9 +23,16 @@ from app.core.config import get_settings, resolve_runtime_path
 from app.services.generators.pptx_generator import generate_pptx
 from app.services.generators.docx_generator import generate_docx
 from app.core.security import require_user
-from app.db import get_db
-from app.models import GeneratedArtifact, Lesson
+from app.db import SessionLocal, get_db
+from app.models import GeneratedArtifact, GenerationJob, Lesson
+from app.schemas.generation import GenerationJobResponse, GenerationRequest
 from app.schemas.pptagent import PptEditAction
+from app.services.generation_service import (
+    TERMINAL_GENERATION_STATUSES,
+    create_generation_job,
+    generation_job_response,
+    get_generation_job,
+)
 from app.services.pptagent.editor import apply_actions
 
 logger = logging.getLogger(__name__)
@@ -31,6 +41,7 @@ router = APIRouter(dependencies=[Depends(require_user)])
 settings = get_settings()
 EXPORT_DIR = resolve_runtime_path(settings.upload_dir) / "exports"
 EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+SSE_MAX_SECONDS = 330
 
 
 class PptxExportRequest(BaseModel):
@@ -125,6 +136,63 @@ async def export_docx(body: DocxExportRequest) -> dict:
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"DOCX 导出失败：{exc}",
         ) from exc
+
+
+@router.post(
+    "/pptx/jobs",
+    response_model=GenerationJobResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="创建 PPTX 后台生成任务",
+)
+async def create_pptx_job(
+    body: GenerationRequest,
+    db: Session = Depends(get_db),
+) -> GenerationJobResponse:
+    """Persist the request before dispatching it to the existing Celery worker."""
+    try:
+        return create_generation_job(db, body)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/jobs/{job_id}", response_model=GenerationJobResponse, summary="查询课件生成任务")
+async def get_pptx_job(job_id: str, db: Session = Depends(get_db)) -> GenerationJobResponse:
+    try:
+        return generation_job_response(get_generation_job(db, job_id))
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/jobs/{job_id}/events", summary="订阅课件生成 SSE 事件")
+async def generation_events(
+    job_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    if db.get(GenerationJob, job_id) is None:
+        raise HTTPException(status_code=404, detail="生成任务不存在")
+
+    async def event_stream():
+        deadline = time.monotonic() + SSE_MAX_SECONDS
+        while time.monotonic() < deadline:
+            if await request.is_disconnected():
+                break
+            with SessionLocal() as session:
+                job = session.get(GenerationJob, job_id)
+                if job is None:
+                    break
+                payload = generation_job_response(job).model_dump(mode="json")
+                status_value = job.status
+            yield f"event: generation\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+            if status_value in TERMINAL_GENERATION_STATUSES:
+                break
+            await asyncio.sleep(1)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get("/{filename}", summary="下载导出文件")

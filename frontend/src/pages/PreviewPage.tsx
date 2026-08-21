@@ -1,5 +1,5 @@
 // pages/PreviewPage.tsx — PPT 预览与导出页
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Alert,
@@ -11,6 +11,7 @@ import {
   Input,
   InputNumber,
   message,
+  Progress,
   Result,
   Row,
   Select,
@@ -28,8 +29,8 @@ import {
   ArrowDownOutlined,
 } from "@ant-design/icons";
 import { useWorkflowStore } from "../stores/workflow";
-import { apiApplyPptActions, apiExportDOCX, apiExportPPTX, apiGenerateInteractive, apiRewritePptInstruction } from "../services/api";
-import type { InteractionType, Outline, PptEditAction } from "../services/api";
+import { apiApplyPptActions, apiCreatePptxJob, apiExportDOCX, apiExportPPTX, apiGenerateInteractive, apiGetGenerationJob, apiRewritePptInstruction, apiSubscribeGenerationJob } from "../services/api";
+import type { GenerationJob, InteractionType, Outline, PptEditAction } from "../services/api";
 
 const { Title, Text } = Typography;
 
@@ -42,6 +43,8 @@ export default function PreviewPage() {
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [docxUrl, setDocxUrl] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [generationJobId, setGenerationJobId] = useState<string | null>(null);
+  const [generationProgress, setGenerationProgress] = useState(0);
   const [instruction, setInstruction] = useState("");
   const [rewriteLoading, setRewriteLoading] = useState(false);
   const [pendingActions, setPendingActions] = useState<PptEditAction[]>([]);
@@ -50,8 +53,41 @@ export default function PreviewPage() {
   const [interactionCount, setInteractionCount] = useState(3);
   const [interactionHtml, setInteractionHtml] = useState<string | null>(null);
   const [interactionLoading, setInteractionLoading] = useState(false);
+  const settledJobsRef = useRef(new Set<string>());
 
   const currentOutline = outline as Outline | null;
+
+  const applyGenerationJob = useCallback((job: GenerationJob) => {
+    setGenerationProgress(job.progress);
+    if ((job.status === "completed" || job.status === "failed") && settledJobsRef.current.has(job.job_id)) {
+      return;
+    }
+    if (job.status === "completed" && job.output?.url) {
+      settledJobsRef.current.add(job.job_id);
+      setDownloadUrl(job.output.url);
+      setStage("done");
+      setGenerationJobId(null);
+      job.output.warnings?.forEach((warning) => message.warning(warning));
+      message.success("PPT 导出成功，点击下载");
+    } else if (job.status === "failed") {
+      settledJobsRef.current.add(job.job_id);
+      setErrorMsg(job.error_message || "课件生成任务失败");
+      setStage("error");
+      setGenerationJobId(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!generationJobId || stage !== "exporting") return;
+    const controller = apiSubscribeGenerationJob(generationJobId, applyGenerationJob);
+    const polling = window.setInterval(() => {
+      void apiGetGenerationJob(generationJobId).then(applyGenerationJob).catch(() => undefined);
+    }, 1500);
+    return () => {
+      controller.abort();
+      window.clearInterval(polling);
+    };
+  }, [applyGenerationJob, generationJobId, stage]);
 
   const handleEditAction = async (action: PptEditAction) => {
     if (!currentOutline) return;
@@ -135,8 +171,17 @@ export default function PreviewPage() {
       return;
     }
     setStage("exporting");
+    setGenerationProgress(0);
     setErrorMsg(null);
     try {
+      if (lessonId) {
+        const job = await apiCreatePptxJob(currentOutline, lessonId);
+        applyGenerationJob(job);
+        if (job.status === "queued" || job.status === "generating") {
+          setGenerationJobId(job.job_id);
+        }
+        return;
+      }
       const resp = await apiExportPPTX(currentOutline, lessonId ? { lesson_id: lessonId } : undefined);
       setDownloadUrl(resp.url);
       setStage("done");
@@ -346,7 +391,12 @@ export default function PreviewPage() {
             <Result
               icon={<Spin size="large" />}
               title="正在生成 PPT，请稍候..."
-              subTitle="后端正在调用 python-pptx 渲染大纲内容"
+              subTitle={
+                <Space direction="vertical" style={{ width: 360 }}>
+                  <Text type="secondary">后端正在调用 python-pptx 安全渲染大纲内容</Text>
+                  <Progress percent={generationProgress} status="active" />
+                </Space>
+              }
             />
           )}
 
@@ -384,7 +434,7 @@ export default function PreviewPage() {
               title="导出失败"
               subTitle={errorMsg || "请稍后重试"}
               extra={[
-                <Button key="retry" type="primary" onClick={() => setStage("idle")}>
+                <Button key="retry" type="primary" onClick={() => { setStage("idle"); setGenerationProgress(0); }}>
                   重试
                 </Button>,
               ]}

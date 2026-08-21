@@ -19,7 +19,7 @@ OCR 失败、超时或没有识别到文本时，上传接口仍保存材料，�
 | `OCR_MAX_PAGES` | `30` | 单个 PDF 最多 OCR 页数，允许 1–100 |
 | `OCR_MAX_PIXELS` | `20000000` | 单页或图片进入 OCR 前的最大像素数 |
 
-最多两个 Tesseract 识别进程并行运行。Compose 上传成功后返回 `queued`，Celery worker 在线程中执行受限 OCR，前端轮询 `parse_progress` 并可请求取消；本地开发默认同步解析。SSE 推送属于后续增强。
+最多两个 Tesseract 识别进程并行运行。Compose 上传成功后返回 `queued`，Celery worker 在线程中执行受限 OCR，前端通过 SSE 接收 `parse_progress`、保留轮询降级并可请求取消；本地开发默认同步解析。
 
 ## 本地开发
 

@@ -28,6 +28,9 @@ class Settings(BaseSettings):
     celery_result_backend: str = "redis://localhost:6379/1"
     material_task_soft_limit_seconds: int = Field(default=1800, ge=60, le=7200)
     material_task_hard_limit_seconds: int = Field(default=1860, ge=90, le=7260)
+    generation_async_enabled: bool = False
+    generation_task_soft_limit_seconds: int = Field(default=300, ge=30, le=1800)
+    generation_task_hard_limit_seconds: int = Field(default=330, ge=60, le=1860)
     llm_provider: str = "deepseek"
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com"
