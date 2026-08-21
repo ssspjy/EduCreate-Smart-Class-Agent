@@ -14,6 +14,10 @@ describe("material upload helpers", () => {
     expect(isMaterialUsable(material("parsed"))).toBe(true);
     expect(isMaterialUsable(material("failed"))).toBe(false);
     expect(isMaterialUsable(material("error"))).toBe(false);
+    expect(isMaterialUsable(material("queued"))).toBe(false);
+    expect(isMaterialUsable(material("parsing"))).toBe(false);
+    expect(isMaterialUsable(material("cancelling"))).toBe(false);
+    expect(isMaterialUsable(material("cancelled"))).toBe(false);
   });
 
   it("exposes image and video extensions in the file picker", () => {

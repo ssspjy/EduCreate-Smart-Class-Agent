@@ -11,6 +11,7 @@ from app.db import get_db
 from app.core.security import require_user
 from app.schemas import ChunkResponse, MaterialDetailResponse, MaterialResponse
 from app.services.material_service import (
+    cancel_material_parse,
     create_material_from_upload,
     delete_material,
     get_material_detail,
@@ -52,6 +53,15 @@ async def get_uploaded_material_chunks(
 ) -> list[ChunkResponse]:
     """Return parsed chunks for a material."""
     return list_material_chunks(db, material_id)
+
+
+@router.post("/{material_id}/cancel", response_model=MaterialResponse, summary="取消材料解析")
+async def cancel_uploaded_material_parse(
+    material_id: str,
+    db: Session = Depends(get_db),
+) -> MaterialResponse:
+    """Cancel a queued task or request cooperative cancellation for a running task."""
+    return cancel_material_parse(db, material_id)
 
 
 @router.delete("/{material_id}", status_code=status.HTTP_204_NO_CONTENT, summary="删除参考资料")

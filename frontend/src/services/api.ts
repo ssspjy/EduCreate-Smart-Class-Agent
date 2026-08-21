@@ -5,11 +5,13 @@
 export interface Material {
   file_id: string;
   filename: string;
-  status: "uploaded" | "parsing" | "parsed" | "failed" | "queued" | "error";
+  status: "uploaded" | "parsing" | "parsed" | "failed" | "queued" | "cancelling" | "cancelled" | "error";
   mime?: string;
   extension?: string;
   size?: number;
   chunk_count?: number;
+  parse_progress?: number;
+  can_cancel?: boolean;
   created_at?: string;
   parsed_at?: string | null;
   error_message?: string | null;
@@ -245,11 +247,17 @@ export const apiLogout = (): void => {
 export const apiListMaterials = (): Promise<Material[]> =>
   apiFetch<Material[]>("/materials");
 
+export const apiGetMaterial = (materialId: string): Promise<Material> =>
+  apiFetch<Material>(`/materials/${materialId}`);
+
 export const apiDeleteMaterial = (materialId: string): Promise<void> =>
   apiFetch<void>(`/materials/${materialId}`, { method: "DELETE" });
 
 export const apiGetMaterialChunks = (materialId: string): Promise<MaterialChunk[]> =>
   apiFetch<MaterialChunk[]>(`/materials/${materialId}/chunks`);
+
+export const apiCancelMaterialParse = (materialId: string): Promise<Material> =>
+  apiFetch<Material>(`/materials/${materialId}/cancel`, { method: "POST" });
 
 // ── GPS 澄清 ─────────────────────────────────────────────────────────────────
 

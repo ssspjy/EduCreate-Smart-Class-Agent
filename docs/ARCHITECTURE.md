@@ -15,7 +15,7 @@
 **工程化说明**：这是比赛级纯 Web 应用，架构以“核心闭环真实可用、现场部署稳定、依赖最少化”为决策顺序。在保留两篇论文核心范式（DAG 主动追问 + 编辑式 PPT 生成）的基础上做如下取舍：
 - GPS：保留**追问闭环 + DAG 可视化**作为展示点，去掉强化学习训练链路（比赛不要求训模型）
 - PPTAgent：比赛版用后端 **python-pptx** 从受校验的结构化大纲生成 PPTX，PptxGenJS 仅作为后续浏览器内编辑候选（详见 §5.3）
-- 部署：只把已被业务真实使用的服务纳入比赛运行时；PostgreSQL + pgvector 是 Compose 数据层，Redis / Celery 在耗时任务异步化时接入，MinIO 与独立实时网关不作为比赛版硬依赖
+- 部署：只把已被业务真实使用的服务纳入比赛运行时；PostgreSQL + pgvector 是 Compose 数据层，Redis / Celery 已承担材料解析，MinIO 与独立实时网关不作为比赛版硬依赖
 
 ---
 
@@ -54,7 +54,7 @@
 
 ## 2. 部署拓扑
 
-> 本项目采用 **Docker Compose** 一键部署当前比赛运行时：前端、后端、PostgreSQL + pgvector。上传资料和生成成果使用 Docker 持久化卷。
+> 本项目采用 **Docker Compose** 一键部署当前比赛运行时：前端、后端、材料解析 worker、Redis、PostgreSQL + pgvector。上传资料、Redis 消息和模型缓存使用 Docker 持久化卷。
 
 ```
 ┌───────────────────────────────────────────────────────────┐
@@ -64,13 +64,18 @@
 │  │ frontend       │ ◄────────► │ backend                │  │
 │  │ React + Nginx  │            │ FastAPI + Uvicorn      │  │
 │  │ :5173 → :80    │            │ :8000                  │  │
-│  └────────────────┘            └───────────┬────────────┘  │
-│                                           │ SQLAlchemy     │
-│                                ┌──────────▼─────────────┐  │
-│                                │ PostgreSQL 16          │  │
-│                                │ + pgvector             │  │
-│                                │ :5432                  │  │
-│                                └────────────────────────┘  │
+│  └────────────────┘            └──────┬─────────┬───────┘  │
+│                                      │ SQL     │ enqueue   │
+│                           ┌──────────▼───┐  ┌──▼────────┐  │
+│                           │ PostgreSQL   │  │ Redis     │  │
+│                           │ + pgvector   │  │ broker    │  │
+│                           └──────────▲───┘  └──┬────────┘  │
+│                                      │         │ consume   │
+│                                      └────┬────┘           │
+│                                     ┌─────▼──────┐         │
+│                                     │ worker     │         │
+│                                     │ Celery     │         │
+│                                     └────────────┘         │
 │                                                           │
 │  uploads / exports：Docker 命名卷持久化                    │
 └───────────────────────────────────────────────────────────┘
@@ -79,12 +84,13 @@
 **说明**：
 
 - **前端**：Nginx 托管 React 构建产物，并把 `/api/*` 反向代理到后端
-- **后端**：比赛版使用 Uvicorn 部署 FastAPI；材料解析、GPS、大纲、质检和导出均从统一 REST API 提供
+- **后端**：比赛版使用 Uvicorn 部署 FastAPI；上传落盘后发布材料任务，GPS、大纲、质检和导出从统一 REST API 提供
+- **Redis + Celery worker**：Redis 持久化待消费任务；单并发 worker 执行 OCR、FFmpeg 和 Whisper，和后端共享上传卷与 SQL 状态
 - **PostgreSQL + pgvector**：Compose 的正式数据层；chunks 已写入 1024 维向量并建立 HNSW 索引，支持余弦检索。BGE-M3 为可选 provider，未安装模型时使用 hash embedding 降级
 - **文件存储**：原始资料与生成成果使用后端目录和 Docker 命名卷，减少比赛环境依赖
 - **本地开发**：允许继续使用 SQLite，保证无需 Docker 也能开发和运行测试
-- **数据库迁移**：Alembic 作为结构版本控制；启动时保留幂等兼容检查，避免旧比赛数据卷在升级期间不可用
-- **条件接入**：OCR、视频转写或生成任务出现明显长耗时后，引入 Redis + Celery，并使用 SSE 推送进度；当前 OCR/视频解析仍由线程隔离并受资源上限保护
+- **数据库迁移**：Alembic 作为结构版本控制；后端容器启动前自动升级，旧 `create_all` 数据卷会先标记基线再迁移
+- **任务状态**：`materials` 保存队列 ID、进度和取消标记，前端当前轮询 SQL 状态；SSE 作为后续推送增强
 - **非比赛硬依赖**：MinIO、Gunicorn 多 Worker、WebSocket / WebTransport 和独立实时网关均放入后续演进，不作为当前完成度声明
 
 ---
@@ -147,6 +153,8 @@ backend/
 │   │   │   └── ppteval.py      # 视觉质检（Content/Design/Coherence）
 │   │   ├── parsers/            # 文档解析 + OCR + FFmpeg/可选 Whisper
 │   │   └── generators/         # python-docx（教案）+ Jinja2（模板）
+│   ├── tasks/                   # Celery 材料解析任务
+│   ├── worker.py                # Celery 应用与队列配置
 │   ├── db/                     # PostgreSQL + Alembic 迁移
 │   └── utils/
 ├── tests/                      # Pytest 单元测试
@@ -186,7 +194,7 @@ LLM 不直接散落在业务代码中调用，统一经过 `services/llm/provide
 
 ### 3.4 模块依赖与初始化顺序
 
-比赛版启动依赖为 PostgreSQL/pgvector → FastAPI → Nginx。Docker Compose 使用数据库和后端 healthcheck 保证顺序。本地开发使用 SQLite 时，后端可独立启动。
+比赛版启动依赖为 PostgreSQL/pgvector + Redis → FastAPI 自动迁移 → Celery worker + Nginx。Docker Compose 使用 healthcheck 保证顺序。本地开发使用 SQLite 且 `MATERIAL_ASYNC_ENABLED=false` 时，后端可独立启动。
 
 ---
 
@@ -209,14 +217,14 @@ LLM 不直接散落在业务代码中调用，统一经过 `services/llm/provide
 
 上传不是只保存文件，而是进入统一解析任务：
 
-> 当前实现：本地开发使用 SQLite，Compose 使用 PostgreSQL + pgvector；两种模式均通过后端文件目录保存上传内容。PDF / DOCX / PPTX / Markdown / TXT、图片 OCR、启用后的 MP4 和 WebM 等音频转写会写入 chunks 与 1024 维 embedding；扫描 PDF 仅对无文本页执行 OCR。PostgreSQL 走 pgvector 余弦检索，SQLite 走词法降级。BGE-M3、视频关键帧理解和异步任务仍待完整接入。
+> 当前实现：本地开发使用 SQLite 并默认同步解析；Compose 使用 PostgreSQL + pgvector、Redis 和 Celery worker。PDF / DOCX / PPTX / Markdown / TXT、图片 OCR、启用后的 MP4 和 WebM 等音频转写会写入 chunks 与 1024 维 embedding；扫描 PDF 仅对无文本页执行 OCR。PostgreSQL 走 pgvector 余弦检索，SQLite 走词法降级。BGE-M3 和视频关键帧理解仍待完整接入。
 
 ```
 POST /api/v1/materials/upload
         ↓
-materials.status = uploaded
+materials.status = queued
         ↓
-同步 parser（当前）/ Celery parse_material_job（长任务接入后）
+Redis → Celery materials.parse（Compose）/ 同步 parser（本地默认）
         ↓
 parser dispatch by mime
         ↓
@@ -224,9 +232,9 @@ chunks + metadata + storage_path 写入数据库 / 持久化文件卷
         ↓
 BGE-M3 embedding + pgvector upsert
         ↓
-materials.status = parsed / failed
+materials.status = parsed / uploaded / failed / cancelling / cancelled
         ↓
-返回解析结果（当前）/ SSE 推送进度（长任务接入后）
+前端轮询状态、进度与 warning；SSE 推送待接入
 ```
 
 每个 parser 至少返回统一结构：
@@ -248,7 +256,7 @@ materials.status = parsed / failed
 }
 ```
 
-前端在上传页展示 `uploaded / parsing / parsed / failed`，同步服务端材料列表，并允许教师打开解析抽屉查看 warning、文本 chunk、PDF 页码或视频时间戳；`failed / error` 材料不会进入 GPS 的可用材料 ID 列表。
+前端在上传页展示 `queued / parsing / cancelling / parsed / uploaded / failed / cancelled`，轮询进度并允许安全取消，解析抽屉展示 warning、文本 chunk、PDF 页码或视频时间戳；只有 `parsed / uploaded` 材料会进入 GPS 的可用材料 ID 列表。
 
 ### 3.5.2 指代绑定 — Reference Resolution
 
@@ -654,6 +662,8 @@ email                title               filename            content
                      created_at          size                vector (pgvector)
                      updated_at          parsed_at           chunk_index
                      storage_path        storage_path
+                                         task_id / progress
+                                         cancel_requested
 
 slot_filling        lesson_irs          generation_jobs     quality_reports
 ────────────         ──────────          ────────────────   ──────────────
@@ -702,7 +712,7 @@ created_at           action_json        excerpt (text)
 | PDF 预览 | **PDF.js** | 浏览器内交互式 PDF 阅读器 |
 | 状态管理 | Zustand + TanStack Query + **XState** | XState 管业务流程状态机（澄清→生成→质检→修改→导出） |
 | 表单 | React Hook Form + Zod | 性能 + 类型化校验 |
-| 语音输入 | Web Speech API + MediaRecorder + faster-whisper fallback | 浏览器优先实时识别；不支持时上传 WebM 等音频由后端转写，长录音异步化待接入 |
+| 语音输入 | Web Speech API + MediaRecorder + faster-whisper fallback | 浏览器优先实时识别；不支持时上传 WebM 等音频，Compose 由 Celery worker 后台转写 |
 | 前端测试 | **Vitest + TypeScript 检查 + 生产构建** | 已覆盖材料可用状态、上传格式和 chunk 来源标签；组件交互测试后续扩展 |
 | 后端框架 | **FastAPI** + Uvicorn | 异步 API，OpenAPI 自文档；比赛版单实例依赖更少 |
 | ORM | SQLAlchemy 2.x | 支持多种数据库，async 支持 |
@@ -710,7 +720,7 @@ created_at           action_json        excerpt (text)
 | 数据库 | **PostgreSQL** + pgvector | 关系数据 + 向量检索一体，ACID 支持 |
 | 向量索引 | pgvector HNSW | 比赛数据规模足够，避免无实际收益的 GPU 索引依赖 |
 | 全文检索 | PostgreSQL 全文搜索 | 内置，无需额外服务 |
-| 缓存 / 任务队列 | Redis + Celery（条件接入） | 仅在 OCR / 视频转写等任务异步化后进入比赛运行时 |
+| 缓存 / 任务队列 | Redis 7 + Celery 5 | 已用于 OCR / 视频 / 音频材料解析；SQL 保存业务状态 |
 | 部署 | **Docker Compose** + **Nginx** | 一键部署，负载均衡，静态托管 |
 | 后端测试 | **Pytest** | 单元测试 + 集成测试 |
 | OCR | **pypdfium2 + Pillow + Tesseract** | 仅处理图片和 PDF 无文本页；Docker 内置中英文语言包并设置资源边界 |
@@ -759,7 +769,7 @@ created_at           action_json        excerpt (text)
 - JWT 鉴权可通过 `AUTH_REQUIRED=true` 启用；细粒度 RBAC 待实现
 - 文件上传校验：mime + 大小上限（默认 50MB）+ 后缀白名单（pdf/docx/doc/pptx/ppt/jpg/png/mp4）
 - 上传文件保存到受控文件目录 / Docker 命名卷，数据库只记录元数据和受控路径，不直接执行上传内容
-- GPS 会话当前持久化到数据库；Redis 尚未进入比赛运行时
+- GPS 会话当前持久化到数据库；Redis 只承担 Celery broker/result backend，不存业务真相
 - 用户密码 bcrypt 哈希
 - 敏感配置走环境变量，不入仓
 - Docker Compose 隔离网络，最小化容器权限
@@ -775,15 +785,11 @@ created_at           action_json        excerpt (text)
 
 ---
 
-## 10. 后续文档
+## 10. 配套文档
 
 - `docs/OCR.md` — OCR 配置、运行边界与冒烟排障（已提供）
 - `docs/VIDEO.md` — 视频探测、音频提取和 Whisper 配置（已提供）
 - `docs/VOICE.md` — 澄清页语音输入、录音回退和排障（已提供）
-- `docs/GPS_INTEGRATION.md` — GPS 接入详细设计
-- `docs/PPTAGENT_INTEGRATION.md` — PPTAgent 接入详细设计
-- `docs/INTERACTIVE_CONTENT.md` — 动画 / 小游戏模板与导出设计
-- `docs/REFERENCE_BINDING.md` — 参考资料指代绑定详细设计
-- `docs/DATA_MODEL.md` — 数据库详细 schema
-- `docs/API.md` — REST API 文档
-- `docs/DEPLOY.md` — 部署运维手册
+- `docs/ASYNC_TASKS.md` — 材料解析任务、状态 API、迁移和 Worker 排障（已提供）
+
+GPS、PPTAgent、互动内容、参考资料绑定和完整 API 参考目前仍以内嵌章节及 FastAPI `/docs` 为准；对应独立文档在相关能力实现时再创建，避免保留不存在的路径。

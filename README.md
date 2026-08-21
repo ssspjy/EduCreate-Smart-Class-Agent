@@ -20,7 +20,8 @@ EduCreate-Smart-Class-Agent/
 ├── backend/                       # FastAPI 后端（按 §3.2 文档对齐）
 ├── frontend/                      # React + Vite + TS 前端（按 §3.1 文档对齐）
 ├── docs/
-│   └── ARCHITECTURE.md            # 架构文档（设计源）
+│   ├── ARCHITECTURE.md            # 架构文档（设计源）
+│   └── ASYNC_TASKS.md             # 材料任务队列、API 与运维说明
 ├── docker/
 │   └── postgres/init.sql           # Compose 初始化 pgvector 扩展
 ├── scripts/
@@ -47,18 +48,19 @@ EduCreate-Smart-Class-Agent/
 | Embedding | PostgreSQL pgvector；默认 hash embedding，可选 BGE-M3 provider |
 | OCR | PDFium + Pillow + Tesseract（简体中文 / 英文） |
 | 视频 | FFmpeg + 可选 `faster-whisper`（模型显式配置） |
+| 任务队列 | Compose 使用 Redis + Celery；本地默认同步解析 |
 | 重排 | 词法/向量基础召回；bge-reranker-v2-m3 待接入 |
 | PPTX 导出 | 后端 `python-pptx` |
 | 通信 | REST API；SSE 作为后续生成进度增强 |
 | 容器化 | Docker Compose |
 
-> 比赛版遵循“核心闭环真实可用、部署依赖最少化”的原则。OCR 当前在线程中受限执行；需要长任务进度或视频转写后再接入 Redis / Celery。MinIO、WebTransport 不作为比赛交付硬依赖。
+> 比赛版遵循“核心闭环真实可用、部署依赖最少化”的原则。Compose 已用 Redis / Celery 承担 OCR、视频和音频解析；本地 SQLite 开发仍可同步解析。MinIO、WebTransport 不作为比赛交付硬依赖。
 
 ## 快速开始
 
 ### 方式一：Docker Compose（推荐）
 
-Docker Compose 启动 `frontend`、`backend`、`PostgreSQL + pgvector`，并为数据库和上传文件配置持久化卷。
+Docker Compose 启动 `frontend`、`backend`、`worker`、`Redis`、`PostgreSQL + pgvector`，并为数据库、任务消息和上传文件配置持久化卷。
 后端镜像同时安装 Tesseract 中英文语言包，可直接识别图片和扫描版 PDF。OCR 参数与排障方法见 [`docs/OCR.md`](./docs/OCR.md)。
 
 | 常用 OCR 配置 | 默认值 | 说明 |
@@ -77,7 +79,7 @@ Docker Compose 启动 `frontend`、`backend`、`PostgreSQL + pgvector`，并为�
 docker compose up --build
 ```
 
-数据库结构由 Alembic 管理。首次部署或升级后端时可执行：
+数据库结构由 Alembic 管理，后端容器启动时会自动迁移；已有的 `create_all` 比赛数据卷会先安全标记基线再升级。需要手动核对时可执行：
 
 ```bash
 docker compose exec backend alembic -c alembic.ini upgrade head
@@ -142,7 +144,7 @@ npm audit
 |------|------|------|
 | `auth` | `/api/v1/auth` | 登录 / 鉴权（OAuth2 + JWT） |
 | `teachers` | `/api/v1/teachers` | 教师管理 |
-| `materials` | `/api/v1/materials` | 参考资料上传 / 解析 |
+| `materials` | `/api/v1/materials` | 参考资料上传、后台解析、进度查询与取消 |
 | `lessons` | `/api/v1/lessons` | 教案 / 课件生成 |
 | `knowledge` | `/api/v1/knowledge` | PostgreSQL 使用 pgvector 余弦检索；SQLite/无模型环境自动词法降级 |
 | `exports` | `/api/v1/exports` | 使用 `python-pptx` / `python-docx` 生成和下载 `.pptx` / `.docx` |
@@ -159,6 +161,7 @@ npm audit
 - [x] 前端 10 个模块目录占位（features / stores / pages / components / flow / charts / preview / quality / ppt-export / services）
 - [x] 后端 14 个服务层文件骨架（gps / pptagent / rag / llm / parsers / generators）
 - [x] Docker Compose 一键启动 frontend + backend + PostgreSQL/pgvector
+- [x] Redis + Celery 材料解析 Worker，支持进度轮询、协作式取消和 Web 进程故障降级
 - [x] README + .env.example
 - [x] 一键推送脚本 `scripts/push.ps1`
 - [x] 架构文档 `docs/ARCHITECTURE.md`
@@ -189,12 +192,13 @@ npm audit
 - [ ] BGE-M3 模型服务接入（当前支持 `EMBEDDING_PROVIDER=bge`，未安装模型时自动 hash 降级）
 - [x] 图片 / 扫描 PDF OCR 解析流水线
 - [ ] 视频转写模型在比赛环境预下载并完成真实长视频验收
-- [x] 语音输入（Web Speech API + MediaRecorder fallback；长录音异步化待后续）
+- [x] 语音输入（Web Speech API + MediaRecorder fallback；录音在 Compose 中后台转写）
 - [ ] PPTAgent 参考页分析 + 编辑 actions + self-correction
 - [x] 教案 python-docx 生成与下载
 - [ ] 互动内容 Jinja2 模板生成
 - [ ] 教师修改意见 → 再生成闭环
-- [ ] 耗时任务异步化后接入 Redis + Celery，并通过 SSE 推送进度
+- [x] OCR / 视频 / 音频解析接入 Redis + Celery，前端轮询任务进度并支持取消
+- [ ] 使用 SSE 替代材料状态轮询，并扩展到课件生成任务
 
 ## 当前验证结果
 
@@ -210,11 +214,11 @@ npm audit
 pytest -q
 ```
 
-结果（阶段九验证）：
+结果（阶段十验证）：
 
 - 前端 Vitest `5 passed`，TypeScript 检查和 Vite 生产构建通过。
-- 后端测试通过：`68 passed`；仍有 `datetime.utcnow()` 弃用警告，不影响当前结果。
-- Compose 中 `postgres`、`backend`、`frontend` 已实际启动并通过健康检查。
+- 后端测试通过：`74 passed`；仍有 `datetime.utcnow()` 弃用警告，不影响当前结果。
+- Compose 中 `postgres`、`redis`、`backend`、`worker`、`frontend` 已实际启动并通过健康检查或任务消费检查。
 - 已用无文本层 PDF 验证 Docker 内中英文 Tesseract 运行链路，OCR chunk 带页码和模态信息。
 - 已在 Docker 容器内生成并上传带音轨的 MP4，FFprobe/FFmpeg 链路通过；默认关闭 Whisper 时保留视频并返回明确 warning，不生成虚假字幕。
 - 已通过显式模型准备脚本下载 tiny 模型，并在临时开启转写的后端容器中完成真实短视频上传，生成带时间戳的 transcript chunk；验证后已恢复默认关闭转写。
@@ -226,11 +230,11 @@ pytest -q
 
 - GPS、动态大纲、规则质检和 PPTX 导出已有可运行实现；PPTAgent 的参考页编辑范式和模型增强仍需补齐。
 - `/knowledge/search` 在 PostgreSQL 上已使用 chunks 的 pgvector 余弦检索；本地 SQLite 或未安装 BGE 模型时使用确定性的 hash embedding/词法降级。
-- OCR 当前由上传请求同步等待，但解析工作不阻塞事件循环，并限制并发、页数、DPI、像素和单页超时；任务队列与进度推送属于后续增强。
-- 视频转写默认不下载模型；启用后仍需把耗时任务迁移到 Redis/Celery，并增加取消、进度和模型缓存监控。
+- Compose 中 OCR、视频和音频解析由单并发 Celery worker 执行；进度当前通过材料列表轮询，SSE 属于后续增强。本地开发默认同步执行以保持零额外服务依赖。
+- 视频转写默认不下载模型；启用后由 Worker 使用持久化模型卷，仍需在赛前监控模型缓存和单任务耗时。
 - 本地直接运行默认使用 SQLite，数据位于 `backend/data/` 与 `backend/uploads/`；Docker 使用 PostgreSQL 和命名卷，测试数据位于 `backend/tests/_tmp/`。
 - 比赛版正式 PPT 导出路径是后端 `python-pptx`；PptxGenJS 仅保留为未来浏览器内编辑的候选方案。
-- Redis / Celery、MinIO 和 WebTransport 暂不进入比赛版运行时，除非对应业务能力真正接入。
+- Redis / Celery 已作为材料解析的真实运行时依赖；MinIO 和 WebTransport 仍不进入比赛版运行时。
 - `基础/` 为外部参考材料目录，已被 `.gitignore` 排除。
 
 ## 许可

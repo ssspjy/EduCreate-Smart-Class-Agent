@@ -12,6 +12,7 @@ import {
   Empty,
   List,
   message,
+  Progress,
   Row,
   Space,
   Spin,
@@ -27,8 +28,10 @@ import {
   FileOutlined,
   FileSearchOutlined,
   RightOutlined,
+  StopOutlined,
 } from "@ant-design/icons";
 import {
+  apiCancelMaterialParse,
   apiDeleteMaterial,
   apiGetMaterialChunks,
   apiListMaterials,
@@ -49,6 +52,8 @@ const STATUS_COLOR: Record<string, string> = {
   parsed: "green",
   failed: "red",
   queued: "default",
+  cancelling: "orange",
+  cancelled: "default",
   error: "red",
 };
 
@@ -58,6 +63,8 @@ const STATUS_TEXT: Record<string, string> = {
   parsed: "已就绪",
   failed: "失败",
   queued: "排队中",
+  cancelling: "取消中",
+  cancelled: "已取消",
   error: "错误",
 };
 
@@ -73,22 +80,39 @@ export default function UploadPage() {
   const [selectedChunks, setSelectedChunks] = useState<MaterialChunk[]>([]);
   const [chunksLoading, setChunksLoading] = useState(false);
 
+  const refreshMaterials = useCallback(async () => {
+    try {
+      setMaterials(await apiListMaterials());
+      setSyncWarning(null);
+    } catch (error: unknown) {
+      setSyncWarning(error instanceof Error ? error.message : "无法同步材料列表");
+    }
+  }, [setMaterials]);
+
   useEffect(() => {
     let active = true;
-    void apiListMaterials()
-      .then((serverMaterials) => {
-        if (!active) return;
-        setMaterials(serverMaterials);
-        setSyncWarning(null);
-      })
-      .catch((error: unknown) => {
-        if (!active) return;
-        setSyncWarning(error instanceof Error ? error.message : "无法同步材料列表");
-      });
+    void apiListMaterials().then((serverMaterials) => {
+      if (active) setMaterials(serverMaterials);
+    }).catch((error: unknown) => {
+      if (active) setSyncWarning(error instanceof Error ? error.message : "无法同步材料列表");
+    });
     return () => {
       active = false;
     };
   }, [setMaterials]);
+
+  const hasActiveMaterials = materials.some((item) => ["queued", "parsing", "cancelling"].includes(item.status));
+  useEffect(() => {
+    if (!hasActiveMaterials) return;
+    const timer = window.setInterval(() => void refreshMaterials(), 1500);
+    return () => window.clearInterval(timer);
+  }, [hasActiveMaterials, refreshMaterials]);
+
+  useEffect(() => {
+    if (!selectedMaterial) return;
+    const current = materials.find((item) => item.file_id === selectedMaterial.file_id);
+    if (current && current !== selectedMaterial) setSelectedMaterial(current);
+  }, [materials, selectedMaterial]);
 
   // 实际执行上传
   const handleUpload = useCallback(async (files: File[]) => {
@@ -118,7 +142,8 @@ export default function UploadPage() {
 
     setUploadingCount(0);
     if (newMaterials.length > 0) {
-      setStage(newMaterials.length === files.length ? "done" : "partial");
+      const parsing = newMaterials.some((item) => item.status === "queued" || item.status === "parsing");
+      setStage(parsing ? "parsing" : newMaterials.length === files.length ? "done" : "partial");
     } else {
       setStage("idle");
     }
@@ -127,7 +152,7 @@ export default function UploadPage() {
       message.error(`${failed.length} 个文件上传失败`);
     }
     if (newMaterials.length > 0) {
-      message.success(`${newMaterials.length} 个文件上传成功`);
+      message.success(`${newMaterials.length} 个文件上传成功${newMaterials.some((item) => item.can_cancel) ? "，正在后台解析" : ""}`);
     }
   }, [addMaterial]);
 
@@ -163,6 +188,15 @@ export default function UploadPage() {
       message.error(error instanceof Error ? error.message : "读取解析片段失败");
     } finally {
       setChunksLoading(false);
+    }
+  };
+
+  const handleCancel = async (materialId: string) => {
+    try {
+      addMaterial(await apiCancelMaterialParse(materialId));
+      message.info("已请求取消解析");
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "取消失败");
     }
   };
 
@@ -253,7 +287,7 @@ export default function UploadPage() {
               <Alert
                 type="info"
                 icon={<Spin size="small" />}
-                message={`正在上传并解析 ${uploadingCount} 个文件...`}
+                message={`正在上传 ${uploadingCount} 个文件...`}
                 style={{ marginBottom: 12 }}
               />
             )}
@@ -294,6 +328,18 @@ export default function UploadPage() {
                 renderItem={(item) => (
                   <List.Item
                     actions={[
+                      ...(item.can_cancel ? [
+                        <Button
+                          key="cancel"
+                          type="link"
+                          size="small"
+                          danger
+                          icon={<StopOutlined />}
+                          onClick={() => void handleCancel(item.file_id)}
+                        >
+                          取消
+                        </Button>,
+                      ] : []),
                       <Button
                         key="inspect"
                         type="link"
@@ -309,7 +355,8 @@ export default function UploadPage() {
                         danger
                         size="small"
                         icon={<DeleteOutlined />}
-                         onClick={() => void handleDelete(item.file_id)}
+                        disabled={["queued", "parsing", "cancelling"].includes(item.status)}
+                        onClick={() => void handleDelete(item.file_id)}
                       />,
                     ]}
                   >
@@ -328,7 +375,14 @@ export default function UploadPage() {
                           )}
                         </Space>
                       }
-                      description={item.error_message && (
+                      description={["queued", "parsing", "cancelling"].includes(item.status) ? (
+                        <Progress
+                          percent={item.parse_progress ?? 0}
+                          size="small"
+                          status="active"
+                          style={{ maxWidth: 320 }}
+                        />
+                      ) : item.error_message && (
                         <Text
                           type={item.status === "failed" || item.status === "error" ? "danger" : "warning"}
                           style={{ fontSize: 11 }}
@@ -428,6 +482,7 @@ export default function UploadPage() {
                 </Tag>
               </Descriptions.Item>
               <Descriptions.Item label="解析片段">{selectedMaterial.chunk_count ?? 0}</Descriptions.Item>
+              <Descriptions.Item label="解析进度">{selectedMaterial.parse_progress ?? 0}%</Descriptions.Item>
               <Descriptions.Item label="格式">{selectedMaterial.extension?.toUpperCase() || "未知"}</Descriptions.Item>
               <Descriptions.Item label="大小">
                 {selectedMaterial.size != null ? `${(selectedMaterial.size / 1024).toFixed(1)} KB` : "未知"}

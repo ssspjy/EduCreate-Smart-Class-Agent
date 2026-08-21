@@ -21,7 +21,7 @@ VIDEO_ALLOW_MODEL_DOWNLOAD=false
 
 关闭时，Web Speech API 在浏览器支持的情况下仍可直接输入文字；MediaRecorder 回退会保留录音，但页面会提示“未生成语音转写”，不会伪造文本。要启用回退转写，请先按 [`VIDEO.md`](./VIDEO.md) 准备模型，再显式设置 `VIDEO_TRANSCRIPTION_ENABLED=true`。
 
-后端接受的录音扩展名包括 `webm`、`wav`、`m4a`、`mp3` 和 `ogg`。录音处理仍在上传请求中同步等待，长录音的队列、取消和进度推送属于后续 Redis/Celery 阶段。
+后端接受的录音扩展名包括 `webm`、`wav`、`m4a`、`mp3` 和 `ogg`。Compose 中录音进入 Celery 队列，澄清页会等待材料到达终态后再读取 transcript；超时只提示稍后检查材料，不会伪造文本。本地开发仍默认同步处理。
 
 ## 浏览器排障
 

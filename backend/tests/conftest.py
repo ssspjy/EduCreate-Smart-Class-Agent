@@ -15,6 +15,7 @@ TEST_UPLOAD_DIR = TEST_RUNTIME_DIR / "uploads"
 os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB_PATH.as_posix()}"
 os.environ["UPLOAD_DIR"] = str(TEST_UPLOAD_DIR)
 os.environ["DATABASE_AUTO_CREATE"] = "true"
+os.environ["MATERIAL_ASYNC_ENABLED"] = "false"
 
 from app.db import Base, engine  # noqa: E402
 from app.main import app  # noqa: E402

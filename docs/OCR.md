@@ -19,7 +19,7 @@ OCR 失败、超时或没有识别到文本时，上传接口仍保存材料，�
 | `OCR_MAX_PAGES` | `30` | 单个 PDF 最多 OCR 页数，允许 1–100 |
 | `OCR_MAX_PIXELS` | `20000000` | 单页或图片进入 OCR 前的最大像素数 |
 
-最多两个 Tesseract 识别进程并行运行。解析工作会移入线程，避免阻塞 FastAPI 事件循环；当前上传请求仍会等待解析结束。需要任务进度、取消或更高并发时，再接入 Redis、Celery 和 SSE。
+最多两个 Tesseract 识别进程并行运行。Compose 上传成功后返回 `queued`，Celery worker 在线程中执行受限 OCR，前端轮询 `parse_progress` 并可请求取消；本地开发默认同步解析。SSE 推送属于后续增强。
 
 ## 本地开发
 
@@ -37,10 +37,10 @@ OCR_ENABLED=false
 curl.exe -F "file=@D:\资料\scan.pdf" http://localhost:8000/api/v1/materials/upload
 ```
 
-成功时返回 `status=parsed` 和非零 `chunk_count`。随后调用：
+首次响应通常返回 `status=queued`。轮询材料详情直到 `status=parsed` 和非零 `chunk_count`：
 
 ```powershell
 curl.exe http://localhost:8000/api/v1/materials/<file_id>/chunks
 ```
 
-OCR 片段应包含正确的 `page_ref` 和 `"modality":"ocr"`。排障时执行 `docker compose logs --tail=100 backend`，重点检查语言包缺失、单页超时和像素限制相关警告。
+OCR 片段应包含正确的 `page_ref` 和 `"modality":"ocr"`。排障时执行 `docker compose logs --tail=100 worker`，重点检查语言包缺失、单页超时和像素限制相关警告。

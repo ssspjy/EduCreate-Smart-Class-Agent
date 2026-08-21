@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     database_auto_create: bool = True
     upload_dir: Path = Path("./uploads")
     max_upload_size_mb: int = 50
+    material_async_enabled: bool = False
+    celery_broker_url: str = "redis://localhost:6379/0"
+    celery_result_backend: str = "redis://localhost:6379/1"
+    material_task_soft_limit_seconds: int = Field(default=1800, ge=60, le=7200)
+    material_task_hard_limit_seconds: int = Field(default=1860, ge=90, le=7260)
     llm_provider: str = "deepseek"
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com"

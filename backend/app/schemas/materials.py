@@ -32,6 +32,8 @@ class MaterialResponse(BaseModel):
     extension: str
     size: int
     chunk_count: int
+    parse_progress: int
+    can_cancel: bool
     created_at: datetime
     parsed_at: Optional[datetime] = None
     error_message: Optional[str] = None

@@ -1,7 +1,7 @@
 # Docker Compose — 师创智课比赛版一键启动
 #
-# 只编排当前实际使用的核心服务：前端、后端和 PostgreSQL + pgvector。
-# Redis / Celery 仅在耗时任务异步化后接入，MinIO 与实时网关不作为比赛版硬依赖。
+# 只编排当前实际使用的核心服务：前端、后端、PostgreSQL + pgvector，
+# 以及承担 OCR / 音视频解析的 Redis + Celery worker。MinIO 与实时网关不作为比赛版硬依赖。
 
 services:
   postgres:
@@ -23,6 +23,19 @@ services:
       timeout: 3s
       retries: 10
 
+  redis:
+    image: redis:7.2.15-alpine
+    container_name: educreate-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   backend:
     build:
       context: ./backend
@@ -36,8 +49,13 @@ services:
       - APP_VERSION=0.1.0
       - CORS_ORIGINS=["http://localhost:5173","http://127.0.0.1:5173","http://localhost","http://frontend:80"]
       - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER:-educreate}:${POSTGRES_PASSWORD:-educreate}@postgres:5432/${POSTGRES_DB:-educreate}
-      - DATABASE_AUTO_CREATE=true
+      - DATABASE_AUTO_CREATE=false
       - UPLOAD_DIR=/app/uploads
+      - MATERIAL_ASYNC_ENABLED=true
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - MATERIAL_TASK_SOFT_LIMIT_SECONDS=${MATERIAL_TASK_SOFT_LIMIT_SECONDS:-1800}
+      - MATERIAL_TASK_HARD_LIMIT_SECONDS=${MATERIAL_TASK_HARD_LIMIT_SECONDS:-1860}
       - LLM_PROVIDER=${LLM_PROVIDER:-deepseek}
       - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
       - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
@@ -75,11 +93,57 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
       interval: 10s
       timeout: 3s
       retries: 5
+
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: educreate-worker
+    restart: unless-stopped
+    command: ["celery", "-A", "app.worker:celery_app", "worker", "--loglevel=INFO", "--concurrency=1"]
+    environment:
+      - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER:-educreate}:${POSTGRES_PASSWORD:-educreate}@postgres:5432/${POSTGRES_DB:-educreate}
+      - DATABASE_AUTO_CREATE=false
+      - UPLOAD_DIR=/app/uploads
+      - MATERIAL_ASYNC_ENABLED=true
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/1
+      - MATERIAL_TASK_SOFT_LIMIT_SECONDS=${MATERIAL_TASK_SOFT_LIMIT_SECONDS:-1800}
+      - MATERIAL_TASK_HARD_LIMIT_SECONDS=${MATERIAL_TASK_HARD_LIMIT_SECONDS:-1860}
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-hash}
+      - EMBEDDING_DIMENSION=${EMBEDDING_DIMENSION:-1024}
+      - BGE_MODEL_NAME=${BGE_MODEL_NAME:-BAAI/bge-m3}
+      - OCR_ENABLED=${OCR_ENABLED:-true}
+      - OCR_LANGUAGE=${OCR_LANGUAGE:-chi_sim}
+      - OCR_DPI=${OCR_DPI:-200}
+      - OCR_TIMEOUT_SECONDS=${OCR_TIMEOUT_SECONDS:-30}
+      - OCR_MAX_PAGES=${OCR_MAX_PAGES:-30}
+      - OCR_MAX_PIXELS=${OCR_MAX_PIXELS:-20000000}
+      - VIDEO_TRANSCRIPTION_ENABLED=${VIDEO_TRANSCRIPTION_ENABLED:-false}
+      - VIDEO_WHISPER_MODEL=${VIDEO_WHISPER_MODEL:-tiny}
+      - VIDEO_WHISPER_MODEL_PATH=${VIDEO_WHISPER_MODEL_PATH:-}
+      - VIDEO_WHISPER_MODEL_CACHE_DIR=${VIDEO_WHISPER_MODEL_CACHE_DIR:-/models/whisper}
+      - VIDEO_ALLOW_MODEL_DOWNLOAD=${VIDEO_ALLOW_MODEL_DOWNLOAD:-false}
+      - VIDEO_WHISPER_DEVICE=${VIDEO_WHISPER_DEVICE:-cpu}
+      - VIDEO_WHISPER_COMPUTE_TYPE=${VIDEO_WHISPER_COMPUTE_TYPE:-int8}
+      - VIDEO_WHISPER_LANGUAGE=${VIDEO_WHISPER_LANGUAGE:-zh}
+      - VIDEO_MAX_DURATION_SECONDS=${VIDEO_MAX_DURATION_SECONDS:-1800}
+      - VIDEO_TRANSCRIPTION_TIMEOUT_SECONDS=${VIDEO_TRANSCRIPTION_TIMEOUT_SECONDS:-300}
+    volumes:
+      - backend_uploads:/app/uploads
+      - whisper_models:/models/whisper
+    depends_on:
+      backend:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   frontend:
     build:
@@ -95,5 +159,6 @@ services:
 
 volumes:
   postgres_data:
+  redis_data:
   backend_uploads:
   whisper_models:

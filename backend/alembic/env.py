@@ -15,7 +15,11 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 target_metadata = Base.metadata
-database_url = os.getenv("ALEMBIC_DATABASE_URL") or get_settings().database_url
+database_url = (
+    config.attributes.get("database_url")
+    or os.getenv("ALEMBIC_DATABASE_URL")
+    or get_settings().database_url
+)
 config.set_main_option("sqlalchemy.url", database_url.replace("%", "%%"))
 
 

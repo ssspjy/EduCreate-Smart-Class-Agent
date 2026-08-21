@@ -21,6 +21,7 @@ import {
   apiClarifyWithHistory,
   apiCreateLesson,
   apiGetMaterialChunks,
+  apiGetMaterial,
   apiGetSessionDag,
   apiUploadMaterial,
 } from "../services/api";
@@ -217,9 +218,17 @@ export default function ClarifyPage() {
   };
 
   const handleVoiceRecording = async (file: File) => {
-    const material = await apiUploadMaterial(file);
+    let material = await apiUploadMaterial(file);
     addMaterial(material);
-    if (material.status === "failed" || material.status === "error") {
+    for (let attempt = 0; attempt < 200 && ["queued", "parsing", "cancelling"].includes(material.status); attempt += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 1500));
+      material = await apiGetMaterial(material.file_id);
+      addMaterial(material);
+    }
+    if (["queued", "parsing", "cancelling"].includes(material.status)) {
+      throw new Error("录音转写超时，可稍后在材料页查看解析结果");
+    }
+    if (material.status === "failed" || material.status === "error" || material.status === "cancelled") {
       throw new Error(material.error_message || "录音解析失败");
     }
     const chunks = await apiGetMaterialChunks(material.file_id);

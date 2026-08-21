@@ -4,7 +4,7 @@
 
 MP4 上传会先通过 FFprobe 校验文件和时长。视频转写开启后，FFmpeg 将音频转换为单声道 16 kHz WAV，再交给 `faster-whisper`；每个转写片段写入 `chunks`，包含时间范围、`media_ref` 和 `modality=transcript`。
 
-默认关闭 Whisper 转写，只做视频探测并返回“未启用”提示。这是有意的部署边界：模型文件较大，不能在用户第一次上传时隐式下载或阻塞接口。Docker 镜像安装了 FFmpeg 和 `faster-whisper`，模型文件通过 `whisper_models` 命名卷持久化。
+默认关闭 Whisper 转写，只做视频探测并返回“未启用”提示。这是有意的部署边界：模型文件较大，不能在用户第一次上传时隐式下载。Docker 镜像安装了 FFmpeg 和 `faster-whisper`；Compose 由 Celery worker 解析，模型文件通过 `whisper_models` 命名卷持久化。
 
 ## 配置
 
@@ -66,6 +66,7 @@ VIDEO_WHISPER_MODEL_PATH=/models/whisper/tiny
 
 ```powershell
 curl.exe -F "file=@D:\资料\lesson.mp4" http://localhost:8000/api/v1/materials/upload
+curl.exe http://localhost:8000/api/v1/materials/<file_id>
 curl.exe http://localhost:8000/api/v1/materials/<file_id>/chunks
 ```
 

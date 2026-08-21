@@ -14,11 +14,11 @@
 
 ## 架构边界
 
-- Compose 当前只包含 frontend、backend、PostgreSQL + pgvector；不要在没有真实业务消费者时加入 Redis、Celery 或 MinIO。
+- Compose 当前包含 frontend、backend、PostgreSQL + pgvector，以及材料解析实际使用的 Redis、Celery worker；不要在没有真实业务消费者时加入 MinIO 或更多中间件。
 - 本地开发默认 SQLite，Compose 使用 PostgreSQL；数据库代码和测试必须兼容两种模式。
 - PPTX 和 DOCX 由后端固定生成器产生，不执行 LLM 返回的代码。
 - OCR 仅处理图片及 PDF 无文本页，失败必须降级为 warning，不能导致已有文本解析失败。
-- OCR 参数必须保留页数、DPI、像素、超时和并发边界；长耗时任务引入后再迁移到任务队列。
+- OCR 参数必须保留页数、DPI、像素、超时和并发边界；Compose 中 OCR、视频和音频解析必须通过 Celery worker，不得退回 Web 请求内长时间执行。
 - 视频转写默认关闭模型下载；必须先通过 FFprobe/FFmpeg 校验和提取音频，失败只返回 warning，不生成虚假字幕。
 - Whisper 模型不可随上传隐式联网下载；使用本地模型路径或显式开启下载，并持久化模型缓存。
 - 比赛部署前使用 `scripts/prepare_whisper.ps1` 显式准备模型；上传侧保持 `VIDEO_ALLOW_MODEL_DOWNLOAD=false`，并通过 `VIDEO_WHISPER_MODEL_PATH` 指向已准备目录。

@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, JSON, String, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import relationship
 from pgvector.sqlalchemy import Vector
 
@@ -26,6 +26,9 @@ class Material(Base):
     extension = Column(String(16), nullable=False, index=True)
     size = Column(Integer, nullable=False, default=0)
     status = Column(String(32), nullable=False, default="uploaded", index=True)
+    parse_progress = Column(Integer, nullable=False, default=0)
+    task_id = Column(String(255), nullable=True, index=True)
+    cancel_requested = Column(Boolean, nullable=False, default=False)
     storage_path = Column(String(1024), nullable=False)
     error_message = Column(Text, nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)

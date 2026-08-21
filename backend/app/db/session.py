@@ -60,6 +60,7 @@ def init_db() -> None:
 
     Base.metadata.create_all(bind=engine)
     _ensure_embedding_column()
+    _ensure_material_task_columns()
 
 
 def _ensure_embedding_column() -> None:
@@ -83,3 +84,25 @@ def _ensure_embedding_column() -> None:
             ))
         elif "embedding" not in columns:
             connection.execute(text("ALTER TABLE chunks ADD COLUMN embedding VECTOR(1024)"))
+
+
+def _ensure_material_task_columns() -> None:
+    """Keep an existing local create_all database usable before Alembic adoption."""
+    inspector = inspect(engine)
+    if "materials" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("materials")}
+    with engine.begin() as connection:
+        if "parse_progress" not in columns:
+            connection.execute(text(
+                "ALTER TABLE materials ADD COLUMN parse_progress INTEGER NOT NULL DEFAULT 0"
+            ))
+        if "task_id" not in columns:
+            connection.execute(text("ALTER TABLE materials ADD COLUMN task_id VARCHAR(255)"))
+        if "cancel_requested" not in columns:
+            connection.execute(text(
+                "ALTER TABLE materials ADD COLUMN cancel_requested BOOLEAN NOT NULL DEFAULT 0"
+            ))
+        connection.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_materials_task_id ON materials (task_id)"
+        ))

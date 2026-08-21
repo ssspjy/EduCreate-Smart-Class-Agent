@@ -1,6 +1,7 @@
 """Material persistence and parsing service."""
 
 from datetime import datetime
+import logging
 from pathlib import Path
 import shutil
 from typing import Optional
@@ -22,6 +23,10 @@ ALLOWED_EXTENSIONS = {
     "pdf", "doc", "docx", "ppt", "pptx", "md", "txt",
     "png", "jpg", "jpeg", "mp4", "webm", "wav", "m4a", "mp3", "ogg",
 }
+
+CANCELLABLE_PARSE_STATUSES = {"queued", "parsing"}
+IN_FLIGHT_PARSE_STATUSES = {*CANCELLABLE_PARSE_STATUSES, "cancelling"}
+logger = logging.getLogger(__name__)
 
 
 def _safe_filename(filename: Optional[str]) -> str:
@@ -48,6 +53,8 @@ def _material_to_response(material: Material) -> MaterialResponse:
         extension=material.extension,
         size=material.size,
         chunk_count=len(material.chunks),
+        parse_progress=material.parse_progress,
+        can_cancel=material.status in CANCELLABLE_PARSE_STATUSES,
         created_at=material.created_at,
         parsed_at=material.parsed_at,
         error_message=material.error_message,
@@ -83,7 +90,7 @@ async def _save_upload(file: UploadFile, target: Path, max_bytes: int) -> int:
 
 
 async def create_material_from_upload(db: Session, file: UploadFile) -> MaterialResponse:
-    """Save, parse, and persist a newly uploaded reference material."""
+    """Save an upload, then parse it inline or enqueue it for a worker."""
     settings = get_settings()
     filename = _safe_filename(file.filename)
     extension = _extension(filename)
@@ -108,14 +115,57 @@ async def create_material_from_upload(db: Session, file: UploadFile) -> Material
         mime=file.content_type or "application/octet-stream",
         extension=extension,
         size=size,
-        status="parsing",
+        status="queued" if settings.material_async_enabled else "parsing",
+        parse_progress=0,
+        task_id=str(uuid4()) if settings.material_async_enabled else None,
         storage_path=str(storage_path),
     )
     db.add(material)
-    db.flush()
+    db.commit()
+
+    if settings.material_async_enabled:
+        try:
+            enqueue_material_parse(material.id, material.task_id)
+            return _material_to_response(get_material_or_404(db, material.id))
+        except Exception:
+            logger.exception("Material worker unavailable; falling back to inline parsing")
+            material.task_id = None
+            material.status = "parsing"
+            db.commit()
+
+    return await parse_material_record(db, material.id)
+
+
+def enqueue_material_parse(material_id: str, task_id: Optional[str]) -> None:
+    """Publish a material parsing task without importing Celery in sync-only paths."""
+    from app.tasks.materials import parse_material_task
+
+    parse_material_task.apply_async(args=[material_id], task_id=task_id)
+
+
+async def parse_material_record(db: Session, material_id: str) -> MaterialResponse:
+    """Parse one persisted material and make database status the source of truth."""
+    material = get_material_or_404(db, material_id)
+    if material.cancel_requested or material.status in {"cancelling", "cancelled"}:
+        material.status = "cancelled"
+        db.commit()
+        return _material_to_response(get_material_or_404(db, material_id))
+
+    material.status = "parsing"
+    material.parse_progress = 10
+    material.error_message = None
+    db.commit()
 
     try:
-        parse_result = await parse(str(storage_path), extension)
+        parse_result = await parse(material.storage_path, material.extension)
+        db.refresh(material)
+        if material.cancel_requested or material.status in {"cancelling", "cancelled"}:
+            material.status = "cancelled"
+            db.commit()
+            return _material_to_response(get_material_or_404(db, material_id))
+
+        material.parse_progress = 70
+        db.commit()
         parsed_contents: list[str] = []
         parsed_items: list[tuple[int, ParsedChunk]] = []
         for chunk_index, parsed_chunk in enumerate(parse_result.chunks):
@@ -126,6 +176,13 @@ async def create_material_from_upload(db: Session, file: UploadFile) -> Material
             parsed_items.append((chunk_index, parsed_chunk))
 
         embeddings = embed_texts(parsed_contents)
+        db.refresh(material)
+        if material.cancel_requested or material.status in {"cancelling", "cancelled"}:
+            material.status = "cancelled"
+            db.commit()
+            return _material_to_response(get_material_or_404(db, material_id))
+
+        db.query(Chunk).filter(Chunk.material_id == material.id).delete(synchronize_session=False)
         for (chunk_index, parsed_chunk), content, embedding in zip(
             parsed_items, parsed_contents, embeddings, strict=True
         ):
@@ -144,32 +201,27 @@ async def create_material_from_upload(db: Session, file: UploadFile) -> Material
             )
 
         material.parsed_at = datetime.utcnow()
-        material.status = "parsed" if parse_result.chunks else "uploaded"
+        material.status = "parsed" if parsed_items else "uploaded"
+        material.parse_progress = 100
+        material.cancel_requested = False
         material.error_message = "; ".join(parse_result.warnings) if parse_result.warnings else None
         db.commit()
     except Exception as exc:
         db.rollback()
         material = db.get(Material, material_id)
-        if material is None:
-            material = Material(
-                id=material_id,
-                filename=filename,
-                mime=file.content_type or "application/octet-stream",
-                extension=extension,
-                size=size,
-                status="failed",
-                storage_path=str(storage_path),
-                error_message=str(exc),
-            )
-            db.add(material)
+        if material is not None:
+            if material.cancel_requested or material.status in {"cancelling", "cancelled"}:
+                material.status = "cancelled"
+            else:
+                material.status = "failed"
+                material.error_message = str(exc)
+            material.parse_progress = 100
+            db.commit()
         else:
-            material.status = "failed"
-            material.error_message = str(exc)
-        db.commit()
+            logger.exception("Material disappeared while parsing: %s", material_id)
+            raise
 
-    db.refresh(material)
-    material = get_material_or_404(db, material.id)
-    return _material_to_response(material)
+    return _material_to_response(get_material_or_404(db, material_id))
 
 
 def list_materials(db: Session) -> list[MaterialResponse]:
@@ -207,9 +259,47 @@ def list_material_chunks(db: Session, material_id: str) -> list[ChunkResponse]:
     return [ChunkResponse.model_validate(chunk) for chunk in material.chunks]
 
 
+def cancel_material_parse(db: Session, material_id: str) -> MaterialResponse:
+    """Request cancellation and revoke a queued task when possible."""
+    material = get_material_or_404(db, material_id)
+    if material.status in {"cancelling", "cancelled"}:
+        return _material_to_response(material)
+    if material.status not in CANCELLABLE_PARSE_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="material is not being parsed",
+        )
+
+    material.cancel_requested = True
+    material.status = "cancelled" if material.status == "queued" else "cancelling"
+    material.error_message = "用户已取消解析" if material.status == "cancelled" else "正在安全取消解析"
+    task_id = material.task_id
+    db.commit()
+
+    if task_id:
+        try:
+            revoke_material_parse(task_id)
+        except Exception:
+            logger.exception("Failed to publish revoke for material task %s", task_id)
+
+    return _material_to_response(get_material_or_404(db, material_id))
+
+
+def revoke_material_parse(task_id: str) -> None:
+    """Publish a non-terminating revoke; running parsers stop at a safe checkpoint."""
+    from app.worker import celery_app
+
+    celery_app.control.revoke(task_id, terminate=False)
+
+
 def delete_material(db: Session, material_id: str) -> None:
     """Delete a material, its chunks, and its managed upload directory."""
     material = get_material_or_404(db, material_id)
+    if material.status in IN_FLIGHT_PARSE_STATUSES:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="cancel material parsing before deletion",
+        )
     storage_path = Path(material.storage_path).resolve()
     upload_root = resolve_runtime_path(get_settings().upload_dir).resolve()
     if upload_root not in storage_path.parents:

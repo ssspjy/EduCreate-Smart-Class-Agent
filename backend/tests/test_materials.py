@@ -1,5 +1,6 @@
 """Material upload and persistence tests."""
 
+import asyncio
 from io import BytesIO
 from pathlib import Path
 
@@ -8,8 +9,11 @@ from docx import Document
 from pypdf import PdfWriter
 
 from app.db import SessionLocal
-from app.models import Chunk
+from app.models import Chunk, Material
+from app.core.config import get_settings
+from app.services import material_service
 from app.services.parsers import parser as parser_module
+from app.services.parsers.parser import ParsedChunk, ParseResult
 from app.services.parsers.ocr import OCRResult
 from app.services.parsers.video import TranscriptSegment, VideoParseResult
 
@@ -308,3 +312,114 @@ def test_upload_file_is_stored_inside_test_runtime(client: TestClient) -> None:
     stored_files = list((Path(__file__).resolve().parent / "_tmp" / "uploads").glob("**/*.png"))
     assert len(stored_files) == 1
     assert payload["file_id"] in str(stored_files[0])
+
+
+def test_async_upload_is_processed_by_shared_worker_path(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    queued: list[tuple[str, str | None]] = []
+    monkeypatch.setattr(get_settings(), "material_async_enabled", True)
+    monkeypatch.setattr(
+        material_service,
+        "enqueue_material_parse",
+        lambda material_id, task_id: queued.append((material_id, task_id)),
+    )
+
+    response = client.post(
+        "/api/v1/materials/upload",
+        files={"file": ("queued.txt", "后台解析材料", "text/plain")},
+    )
+    payload = response.json()
+    assert response.status_code == 200
+    assert payload["status"] == "queued"
+    assert payload["parse_progress"] == 0
+    assert payload["can_cancel"] is True
+    assert queued[0][0] == payload["file_id"]
+
+    with SessionLocal() as db:
+        parsed = asyncio.run(material_service.parse_material_record(db, payload["file_id"]))
+    assert parsed.status == "parsed"
+    assert parsed.parse_progress == 100
+    assert parsed.chunk_count == 1
+
+
+def test_queued_material_can_be_cancelled_and_deleted(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    revoked: list[str] = []
+    monkeypatch.setattr(get_settings(), "material_async_enabled", True)
+    monkeypatch.setattr(material_service, "enqueue_material_parse", lambda *_: None)
+    monkeypatch.setattr(material_service, "revoke_material_parse", revoked.append)
+
+    uploaded = client.post(
+        "/api/v1/materials/upload",
+        files={"file": ("cancel.txt", "待取消", "text/plain")},
+    ).json()
+    blocked_delete = client.delete(f"/api/v1/materials/{uploaded['file_id']}")
+    assert blocked_delete.status_code == 409
+
+    cancelled = client.post(f"/api/v1/materials/{uploaded['file_id']}/cancel")
+    assert cancelled.status_code == 200
+    assert cancelled.json()["status"] == "cancelled"
+    assert cancelled.json()["can_cancel"] is False
+    assert len(revoked) == 1
+
+    assert client.delete(f"/api/v1/materials/{uploaded['file_id']}").status_code == 204
+
+
+def test_worker_observes_cancellation_committed_during_parse(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(get_settings(), "material_async_enabled", True)
+    monkeypatch.setattr(material_service, "enqueue_material_parse", lambda *_: None)
+    uploaded = client.post(
+        "/api/v1/materials/upload",
+        files={"file": ("slow.txt", "慢速材料", "text/plain")},
+    ).json()
+
+    async def fake_parse(*_args, **_kwargs) -> ParseResult:
+        with SessionLocal() as other_db:
+            material = other_db.get(Material, uploaded["file_id"])
+            assert material is not None
+            material.cancel_requested = True
+            material.status = "cancelled"
+            other_db.commit()
+        return ParseResult(chunks=[ParsedChunk(content="不应持久化")], warnings=[])
+
+    monkeypatch.setattr(material_service, "parse", fake_parse)
+    with SessionLocal() as db:
+        result = asyncio.run(material_service.parse_material_record(db, uploaded["file_id"]))
+
+    assert result.status == "cancelled"
+    assert result.chunk_count == 0
+
+
+def test_running_material_stays_undeletable_until_worker_confirms_cancel(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(get_settings(), "material_async_enabled", True)
+    monkeypatch.setattr(material_service, "enqueue_material_parse", lambda *_: None)
+    monkeypatch.setattr(material_service, "revoke_material_parse", lambda *_: None)
+    uploaded = client.post(
+        "/api/v1/materials/upload",
+        files={"file": ("running.txt", "运行中材料", "text/plain")},
+    ).json()
+    with SessionLocal() as db:
+        material = db.get(Material, uploaded["file_id"])
+        assert material is not None
+        material.status = "parsing"
+        db.commit()
+
+    cancelling = client.post(f"/api/v1/materials/{uploaded['file_id']}/cancel")
+    assert cancelling.status_code == 200
+    assert cancelling.json()["status"] == "cancelling"
+    assert client.delete(f"/api/v1/materials/{uploaded['file_id']}").status_code == 409
+
+    with SessionLocal() as db:
+        confirmed = asyncio.run(material_service.parse_material_record(db, uploaded["file_id"]))
+    assert confirmed.status == "cancelled"
+    assert client.delete(f"/api/v1/materials/{uploaded['file_id']}").status_code == 204
