@@ -1,12 +1,14 @@
 // pages/UploadPage.tsx — 课程资料上传页
 // 支持多文件上传、自动解析、材料管理
-import { useCallback, useRef, useState, type DragEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type DragEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Alert,
   Button,
   Card,
   Col,
+  Descriptions,
+  Drawer,
   Empty,
   List,
   message,
@@ -23,13 +25,20 @@ import {
   CloudUploadOutlined,
   DeleteOutlined,
   FileOutlined,
+  FileSearchOutlined,
   RightOutlined,
 } from "@ant-design/icons";
-import { apiDeleteMaterial, apiUploadMaterial } from "../services/api";
+import {
+  apiDeleteMaterial,
+  apiGetMaterialChunks,
+  apiListMaterials,
+  apiUploadMaterial,
+} from "../services/api";
 import { useWorkflowStore } from "../stores/workflow";
-import type { Material } from "../services/api";
+import type { Material, MaterialChunk } from "../services/api";
+import { getChunkSourceLabel, isMaterialUsable, SUPPORTED_FILE_ACCEPT } from "../utils/materials";
 
-const { Title, Text } = Typography;
+const { Paragraph, Title, Text } = Typography;
 
 type UploadStage = "idle" | "uploading" | "parsing" | "partial" | "done";
 type UploadFailure = { filename: string; reason: string };
@@ -54,11 +63,32 @@ const STATUS_TEXT: Record<string, string> = {
 
 export default function UploadPage() {
   const navigate = useNavigate();
-  const { materials, addMaterial, removeMaterial, setCurrentStep } = useWorkflowStore();
+  const { materials, setMaterials, addMaterial, removeMaterial, setCurrentStep } = useWorkflowStore();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [stage, setStage] = useState<UploadStage>("idle");
   const [uploadingCount, setUploadingCount] = useState(0);
   const [failedFiles, setFailedFiles] = useState<UploadFailure[]>([]);
+  const [syncWarning, setSyncWarning] = useState<string | null>(null);
+  const [selectedMaterial, setSelectedMaterial] = useState<Material | null>(null);
+  const [selectedChunks, setSelectedChunks] = useState<MaterialChunk[]>([]);
+  const [chunksLoading, setChunksLoading] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void apiListMaterials()
+      .then((serverMaterials) => {
+        if (!active) return;
+        setMaterials(serverMaterials);
+        setSyncWarning(null);
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        setSyncWarning(error instanceof Error ? error.message : "无法同步材料列表");
+      });
+    return () => {
+      active = false;
+    };
+  }, [setMaterials]);
 
   // 实际执行上传
   const handleUpload = useCallback(async (files: File[]) => {
@@ -72,13 +102,13 @@ export default function UploadPage() {
     for (const file of files) {
       try {
         const mat = await apiUploadMaterial(file);
-        // The backend keeps a failed material record so the error is inspectable.
-        // Do not treat that 200 response as a successful upload in the workflow.
+        addMaterial(mat);
+        // The backend keeps a failed material record so the error remains inspectable.
         if (mat.status === "failed" || mat.status === "error") {
-          throw new Error(mat.error_message || "服务器解析失败");
+          failed.push({ filename: file.name, reason: mat.error_message || "服务器解析失败" });
+          continue;
         }
         newMaterials.push(mat);
-        addMaterial(mat);
       } catch (err) {
         const reason = err instanceof Error ? err.message : "未知上传错误";
         failed.push({ filename: file.name, reason });
@@ -113,15 +143,33 @@ export default function UploadPage() {
     try {
       await apiDeleteMaterial(fileId);
       removeMaterial(fileId);
+      if (selectedMaterial?.file_id === fileId) {
+        setSelectedMaterial(null);
+        setSelectedChunks([]);
+      }
       message.success("已删除");
     } catch (err) {
       message.error(err instanceof Error ? err.message : "删除失败");
     }
   };
 
+  const handleInspect = async (material: Material) => {
+    setSelectedMaterial(material);
+    setSelectedChunks([]);
+    setChunksLoading(true);
+    try {
+      setSelectedChunks(await apiGetMaterialChunks(material.file_id));
+    } catch (error) {
+      message.error(error instanceof Error ? error.message : "读取解析片段失败");
+    } finally {
+      setChunksLoading(false);
+    }
+  };
+
   // 继续到澄清页
   const handleNext = () => {
-    if (materials.length === 0) {
+    const usableMaterials = materials.filter(isMaterialUsable);
+    if (usableMaterials.length === 0) {
       message.warning("请至少上传一份参考资料");
       return;
     }
@@ -131,13 +179,14 @@ export default function UploadPage() {
 
   const totalFiles = materials.length;
   const parsedFiles = materials.filter((m) => m.status === "parsed").length;
+  const usableFiles = materials.filter(isMaterialUsable).length;
   const failedCount = failedFiles.length;
 
   return (
     <div className="page">
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
         <Title level={4} style={{ margin: 0 }}>📂 课程资料上传</Title>
-        <Text type="secondary">上传教学参考材料（PPT / Word / PDF），支持多文件</Text>
+        <Text type="secondary">上传 PDF、Office、图片或视频，解析结果可直接检查</Text>
       </div>
 
       {/* 步骤提示 */}
@@ -154,12 +203,12 @@ export default function UploadPage() {
 
       <Row gutter={16}>
         {/* 左侧：上传区 */}
-        <Col span={14}>
+        <Col xs={24} lg={14}>
           <input
             ref={fileInputRef}
             type="file"
             multiple
-             accept=".pdf,.pptx,.docx,.md,.txt"
+            accept={SUPPORTED_FILE_ACCEPT}
             style={{ display: "none" }}
             onChange={(e) => {
               const files = Array.from(e.currentTarget.files || []);
@@ -195,7 +244,7 @@ export default function UploadPage() {
                 <Text strong style={{ fontSize: 15 }}>拖拽文件到此处，或点击选择文件</Text>
               </div>
               <Text type="secondary" style={{ fontSize: 12 }}>
-                支持 PDF / PPT / Word / Markdown，单文件 ≤ 50MB
+                支持 PDF / PPTX / DOCX / Markdown / 图片 / MP4，单文件 ≤ 50MB
               </Text>
             </div>
 
@@ -204,7 +253,7 @@ export default function UploadPage() {
               <Alert
                 type="info"
                 icon={<Spin size="small" />}
-                message={`正在上传 ${uploadingCount} 个文件...`}
+                message={`正在上传并解析 ${uploadingCount} 个文件...`}
                 style={{ marginBottom: 12 }}
               />
             )}
@@ -226,6 +275,17 @@ export default function UploadPage() {
               />
             )}
 
+            {syncWarning && (
+              <Alert
+                type="warning"
+                message="服务器材料列表同步失败，当前显示本地缓存"
+                description={syncWarning}
+                style={{ marginBottom: 12 }}
+                closable
+                onClose={() => setSyncWarning(null)}
+              />
+            )}
+
             {/* 文件列表 */}
             {materials.length > 0 && (
               <List
@@ -234,6 +294,15 @@ export default function UploadPage() {
                 renderItem={(item) => (
                   <List.Item
                     actions={[
+                      <Button
+                        key="inspect"
+                        type="link"
+                        size="small"
+                        icon={<FileSearchOutlined />}
+                        onClick={() => void handleInspect(item)}
+                      >
+                        查看解析
+                      </Button>,
                       <Button
                         key="del"
                         type="text"
@@ -260,7 +329,12 @@ export default function UploadPage() {
                         </Space>
                       }
                       description={item.error_message && (
-                        <Text type="danger" style={{ fontSize: 11 }}>{item.error_message}</Text>
+                        <Text
+                          type={item.status === "failed" || item.status === "error" ? "danger" : "warning"}
+                          style={{ fontSize: 11 }}
+                        >
+                          {item.error_message}
+                        </Text>
                       )}
                     />
                   </List.Item>
@@ -279,7 +353,7 @@ export default function UploadPage() {
         </Col>
 
         {/* 右侧：统计与操作 */}
-        <Col span={10}>
+        <Col xs={24} lg={10} style={{ marginTop: 16 }}>
           <Card size="small" style={{ marginBottom: 16 }}>
             <Row gutter={16}>
               <Col span={12}>
@@ -287,10 +361,10 @@ export default function UploadPage() {
               </Col>
               <Col span={12}>
                 <Statistic
-                  title="已就绪"
-                  value={parsedFiles}
+                  title="可用于备课"
+                  value={usableFiles}
                   suffix={`/ ${totalFiles}`}
-                  valueStyle={{ color: parsedFiles === totalFiles && totalFiles > 0 ? "#52c41a" : "#888" }}
+                  valueStyle={{ color: usableFiles === totalFiles && totalFiles > 0 ? "#52c41a" : "#888" }}
                 />
               </Col>
             </Row>
@@ -315,7 +389,7 @@ export default function UploadPage() {
               <Space direction="vertical" size="middle" style={{ width: "100%" }}>
                 <div>
                   <CheckCircleOutlined style={{ color: "#52c41a", marginRight: 8 }} />
-                  <Text>已准备好 {totalFiles} 个参考材料</Text>
+                  <Text>已准备好 {usableFiles} 个参考材料，其中 {parsedFiles} 个包含解析片段</Text>
                 </div>
                 <Button
                   type="primary"
@@ -335,6 +409,70 @@ export default function UploadPage() {
           )}
         </Col>
       </Row>
+
+      <Drawer
+        title={selectedMaterial ? `解析结果：${selectedMaterial.filename}` : "解析结果"}
+        width={640}
+        open={Boolean(selectedMaterial)}
+        onClose={() => {
+          setSelectedMaterial(null);
+          setSelectedChunks([]);
+        }}
+      >
+        {selectedMaterial && (
+          <>
+            <Descriptions size="small" column={2} bordered style={{ marginBottom: 16 }}>
+              <Descriptions.Item label="状态">
+                <Tag color={STATUS_COLOR[selectedMaterial.status] || "default"}>
+                  {STATUS_TEXT[selectedMaterial.status] || selectedMaterial.status}
+                </Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="解析片段">{selectedMaterial.chunk_count ?? 0}</Descriptions.Item>
+              <Descriptions.Item label="格式">{selectedMaterial.extension?.toUpperCase() || "未知"}</Descriptions.Item>
+              <Descriptions.Item label="大小">
+                {selectedMaterial.size != null ? `${(selectedMaterial.size / 1024).toFixed(1)} KB` : "未知"}
+              </Descriptions.Item>
+            </Descriptions>
+
+            {selectedMaterial.error_message && (
+              <Alert
+                type={selectedMaterial.status === "failed" || selectedMaterial.status === "error" ? "error" : "warning"}
+                message={selectedMaterial.status === "failed" ? "解析失败" : "解析提示"}
+                description={selectedMaterial.error_message}
+                style={{ marginBottom: 16 }}
+              />
+            )}
+
+            {chunksLoading ? (
+              <div style={{ textAlign: "center", padding: 40 }}><Spin /></div>
+            ) : selectedChunks.length === 0 ? (
+              <Empty description="该材料没有可展示的文本片段" />
+            ) : (
+              <List
+                dataSource={selectedChunks}
+                renderItem={(chunk) => (
+                  <List.Item>
+                    <List.Item.Meta
+                      title={
+                        <Space wrap>
+                          <Text>片段 {chunk.chunk_index + 1}</Text>
+                          <Tag>{chunk.modality}</Tag>
+                          {getChunkSourceLabel(chunk) && <Tag color="blue">{getChunkSourceLabel(chunk)}</Tag>}
+                        </Space>
+                      }
+                      description={
+                        <Paragraph ellipsis={{ rows: 4, expandable: true, symbol: "展开" }} style={{ marginBottom: 0 }}>
+                          {chunk.content}
+                        </Paragraph>
+                      }
+                    />
+                  </List.Item>
+                )}
+              />
+            )}
+          </>
+        )}
+      </Drawer>
     </div>
   );
 }

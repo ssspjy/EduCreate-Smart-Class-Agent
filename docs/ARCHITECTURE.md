@@ -247,7 +247,7 @@ materials.status = parsed / failed
 }
 ```
 
-前端在上传页展示 `uploaded / parsing / parsed / failed`，并允许教师打开解析结果预览后再做指代绑定。
+前端在上传页展示 `uploaded / parsing / parsed / failed`，同步服务端材料列表，并允许教师打开解析抽屉查看 warning、文本 chunk、PDF 页码或视频时间戳；`failed / error` 材料不会进入 GPS 的可用材料 ID 列表。
 
 ### 3.5.2 指代绑定 — Reference Resolution
 
@@ -702,7 +702,7 @@ created_at           action_json        excerpt (text)
 | 状态管理 | Zustand + TanStack Query + **XState** | XState 管业务流程状态机（澄清→生成→质检→修改→导出） |
 | 表单 | React Hook Form + Zod | 性能 + 类型化校验 |
 | 语音输入 | Web Speech API + MediaRecorder + faster-whisper fallback | 满足文字/语音双输入，兼容浏览器能力差异 |
-| 前端测试 | 待接入 Vitest | 当前先以 TypeScript 检查和生产构建作为门禁 |
+| 前端测试 | **Vitest + TypeScript 检查 + 生产构建** | 已覆盖材料可用状态、上传格式和 chunk 来源标签；组件交互测试后续扩展 |
 | 后端框架 | **FastAPI** + Uvicorn | 异步 API，OpenAPI 自文档；比赛版单实例依赖更少 |
 | ORM | SQLAlchemy 2.x | 支持多种数据库，async 支持 |
 | 数据库迁移 | **Alembic** | 版本化管理 schema 演进 |

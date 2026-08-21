@@ -7,7 +7,7 @@
 ## 运行与验证
 
 - 后端本地测试：在 `backend/` 运行 `pytest -q`。
-- 前端门禁：在 `frontend/` 运行 `npm run build`。
+- 前端门禁：在 `frontend/` 运行 `npm test` 和 `npm run build`。
 - 比赛环境：在仓库根目录运行 `docker compose up --build -d`。
 - Docker 冒烟检查：`docker compose ps`，并访问 `/health`、前端首页及本阶段新增接口。
 - 数据库结构由 Alembic 管理；新增模型字段或表时必须同时生成迁移并验证升级。

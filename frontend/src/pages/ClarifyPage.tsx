@@ -18,6 +18,7 @@ import type {
 } from "../services/api";
 import { apiClarify, apiClarifyWithHistory, apiCreateLesson, apiGetSessionDag } from "../services/api";
 import { useWorkflowStore } from "../stores/workflow";
+import { isMaterialUsable } from "../utils/materials";
 
 const { Text, Title } = Typography;
 const { TextArea } = Input;
@@ -98,7 +99,9 @@ export default function ClarifyPage() {
   const [needsMore, setNeedsMore] = useState(true);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
-  const materialIds = materials.map((m) => m.file_id);
+  const materialIds = materials
+    .filter(isMaterialUsable)
+    .map((material) => material.file_id);
 
   // 滚动到底部
   const scrollToBottom = useCallback(() => {

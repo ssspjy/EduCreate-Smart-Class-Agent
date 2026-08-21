@@ -10,7 +10,21 @@ export interface Material {
   extension?: string;
   size?: number;
   chunk_count?: number;
+  created_at?: string;
+  parsed_at?: string | null;
   error_message?: string | null;
+}
+
+export interface MaterialChunk {
+  id: string;
+  material_id: string;
+  chunk_index: number;
+  content: string;
+  page_ref: number | null;
+  bbox?: unknown;
+  media_ref: string | null;
+  modality: string;
+  token_count: number;
 }
 
 // ── GPS 类型（与 backend/app/schemas/gps.py GpsClarifyResult 完全对齐）──────────
@@ -233,6 +247,9 @@ export const apiListMaterials = (): Promise<Material[]> =>
 
 export const apiDeleteMaterial = (materialId: string): Promise<void> =>
   apiFetch<void>(`/materials/${materialId}`, { method: "DELETE" });
+
+export const apiGetMaterialChunks = (materialId: string): Promise<MaterialChunk[]> =>
+  apiFetch<MaterialChunk[]>(`/materials/${materialId}/chunks`);
 
 // ── GPS 澄清 ─────────────────────────────────────────────────────────────────
 

@@ -22,6 +22,7 @@ interface WorkflowState {
 
   // 参考资料
   materials: Material[];
+  setMaterials: (materials: Material[]) => void;
   addMaterial: (m: Material) => void;
   removeMaterial: (fileId: string) => void;
   clearMaterials: () => void;
@@ -60,8 +61,11 @@ export const useWorkflowStore = create<WorkflowState>()(persist((set) => ({
   setCurrentStep: (step) => set({ currentStep: step }),
 
   materials: [],
+  setMaterials: (materials) => set({ materials }),
   addMaterial: (m) =>
-    set((s) => ({ materials: [...s.materials, m] })),
+    set((s) => ({
+      materials: [...s.materials.filter((item) => item.file_id !== m.file_id), m],
+    })),
   removeMaterial: (fileId) =>
     set((s) => ({ materials: s.materials.filter((m) => m.file_id !== fileId) })),
   clearMaterials: () => set({ materials: [] }),
