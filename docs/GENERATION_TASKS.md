@@ -43,6 +43,7 @@ generating → cancelling → cancelled
 ```
 
 - `GET /api/v1/exports/jobs/{job_id}`：查询任务快照。
+- `GET /api/v1/exports/jobs`：按 `lesson_id`、状态分页查询生成历史；默认按创建时间倒序返回 20 条，最多 100 条。
 - `GET /api/v1/exports/jobs/{job_id}/events`：订阅 SSE；事件名为 `generation`，`data` 是完整任务 JSON。
 - `POST /api/v1/exports/jobs/{job_id}/cancel`：请求取消。排队任务立即进入 `cancelled`；运行中的任务进入 `cancelling`，在 python-pptx 安全检查点结束后变为 `cancelled`。
 - `POST /api/v1/exports/jobs/{job_id}/retry`：仅允许 `failed` 或 `cancelled` 任务重试，递增 `retry_count` 并复用原始 `request_json`。

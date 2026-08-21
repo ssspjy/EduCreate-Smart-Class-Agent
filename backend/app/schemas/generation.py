@@ -49,6 +49,15 @@ class GenerationJobResponse(BaseModel):
     updated_at: datetime
 
 
+class GenerationJobListResponse(BaseModel):
+    """Paginated generation history for a lesson or the current teacher."""
+
+    items: list[GenerationJobResponse]
+    total: int
+    page: int
+    page_size: int
+
+
 class GenerationActionResponse(BaseModel):
     """Small response for cancel/retry actions."""
 

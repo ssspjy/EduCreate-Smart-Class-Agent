@@ -83,6 +83,27 @@ def test_generation_job_rejects_more_than_fifty_slides(client: TestClient) -> No
     assert response.status_code == 422
 
 
+def test_generation_job_history_supports_pagination_and_filters(client: TestClient) -> None:
+    lesson_a = client.post("/api/v1/lessons", json={"title": "历史一"}).json()["id"]
+    lesson_b = client.post("/api/v1/lessons", json={"title": "历史二"}).json()["id"]
+    first = client.post("/api/v1/exports/pptx/jobs", json=_outline(lesson_a))
+    second = client.post("/api/v1/exports/pptx/jobs", json=_outline(lesson_b))
+    assert first.status_code == 202
+    assert second.status_code == 202
+
+    page = client.get("/api/v1/exports/jobs", params={"lesson_id": lesson_a, "page": 1, "page_size": 1})
+    assert page.status_code == 200
+    payload = page.json()
+    assert payload["total"] == 1
+    assert payload["page"] == 1
+    assert len(payload["items"]) == 1
+    assert payload["items"][0]["lesson_id"] == lesson_a
+
+    completed = client.get("/api/v1/exports/jobs", params={"status": "completed", "page_size": 100})
+    assert completed.status_code == 200
+    assert completed.json()["total"] >= 2
+
+
 def test_generation_job_events_return_404(client: TestClient) -> None:
     response = client.get("/api/v1/exports/jobs/missing/events")
 

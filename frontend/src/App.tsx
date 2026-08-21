@@ -8,6 +8,7 @@ import ClarifyPage from "./pages/ClarifyPage";
 import OutlinePage from "./pages/OutlinePage";
 import PreviewPage from "./pages/PreviewPage";
 import QualityPage from "./pages/QualityPage";
+import GenerationHistoryPage from "./pages/GenerationHistoryPage";
 import { useWorkflowStore } from "./stores/workflow";
 import LoginPage from "./pages/LoginPage";
 import { apiGetCurrentUser, apiLogout } from "./services/api";
@@ -59,6 +60,7 @@ function Dashboard() {
       <nav className="nav">
         <Link to="/upload">课程共创</Link>
         <Link to="/quality">质量中心</Link>
+        <Link to="/history">生成历史</Link>
         <Link to="/health">健康检查</Link>
         <Button
           type="link"
@@ -102,6 +104,7 @@ export default function App() {
       <Route path="/outline" element={<RequireAuth><OutlinePage /></RequireAuth>} />
       <Route path="/preview" element={<RequireAuth><PreviewPage /></RequireAuth>} />
       <Route path="/quality" element={<RequireAuth><QualityPage /></RequireAuth>} />
+      <Route path="/history" element={<RequireAuth><GenerationHistoryPage /></RequireAuth>} />
       <Route path="/health" element={<RequireAuth><HealthPage /></RequireAuth>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

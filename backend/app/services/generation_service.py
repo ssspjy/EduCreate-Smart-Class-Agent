@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings, resolve_runtime_path
 from app.models import GeneratedArtifact, GenerationJob, Lesson
-from app.schemas.generation import GenerationJobResponse, GenerationRequest
+from app.schemas.generation import GenerationJobListResponse, GenerationJobResponse, GenerationRequest
 from app.services.generators.pptx_generator import generate_pptx
 from app.services.pptagent.editor import apply_actions
 
@@ -50,6 +50,35 @@ def get_generation_job(db: Session, job_id: str) -> GenerationJob:
     if job is None:
         raise LookupError("生成任务不存在")
     return job
+
+
+def list_generation_jobs(
+    db: Session,
+    *,
+    lesson_id: str | None = None,
+    status: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+) -> GenerationJobListResponse:
+    """Return newest generation jobs with bounded pagination and filters."""
+    query = db.query(GenerationJob)
+    if lesson_id:
+        query = query.filter(GenerationJob.lesson_id == lesson_id)
+    if status:
+        query = query.filter(GenerationJob.status == status)
+    total = query.count()
+    jobs = (
+        query.order_by(GenerationJob.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    return GenerationJobListResponse(
+        items=[generation_job_response(job) for job in jobs],
+        total=total,
+        page=page,
+        page_size=page_size,
+    )
 
 
 def _raise_if_cancelled(db: Session, job: GenerationJob) -> None:

@@ -13,7 +13,7 @@ import re
 import time
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func
@@ -25,7 +25,7 @@ from app.services.generators.docx_generator import generate_docx
 from app.core.security import require_user
 from app.db import SessionLocal, get_db
 from app.models import GeneratedArtifact, GenerationJob, Lesson
-from app.schemas.generation import GenerationJobResponse, GenerationRequest
+from app.schemas.generation import GenerationJobListResponse, GenerationJobResponse, GenerationRequest
 from app.schemas.pptagent import PptEditAction
 from app.services.generation_service import (
     TERMINAL_GENERATION_STATUSES,
@@ -33,6 +33,7 @@ from app.services.generation_service import (
     cancel_generation_job,
     generation_job_response,
     get_generation_job,
+    list_generation_jobs,
     retry_generation_job,
 )
 from app.services.pptagent.editor import apply_actions
@@ -155,6 +156,23 @@ async def create_pptx_job(
         return create_generation_job(db, body)
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.get("/jobs", response_model=GenerationJobListResponse, summary="分页查询课件生成历史")
+async def list_pptx_jobs(
+    lesson_id: str | None = Query(default=None, min_length=1, max_length=36),
+    status: str | None = Query(default=None, pattern="^(queued|generating|cancelling|cancelled|completed|failed)$"),
+    page: int = Query(default=1, ge=1, le=10000),
+    page_size: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+) -> GenerationJobListResponse:
+    return list_generation_jobs(
+        db,
+        lesson_id=lesson_id,
+        status=status,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @router.get("/jobs/{job_id}", response_model=GenerationJobResponse, summary="查询课件生成任务")

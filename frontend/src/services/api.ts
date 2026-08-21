@@ -15,6 +15,7 @@ export interface Material {
   created_at?: string;
   parsed_at?: string | null;
   error_message?: string | null;
+  cancel_requested?: boolean;
 }
 
 export interface MaterialChunk {
@@ -236,6 +237,13 @@ export interface GenerationJob {
   error_message?: string | null;
   created_at: string;
   updated_at: string;
+}
+
+export interface GenerationJobListResponse {
+  items: GenerationJob[];
+  total: number;
+  page: number;
+  page_size: number;
 }
 
 // ── 参考资料 ──────────────────────────────────────────────────────────────────
@@ -527,6 +535,20 @@ export const apiCreatePptxJob = (
 
 export const apiGetGenerationJob = (jobId: string): Promise<GenerationJob> =>
   apiFetch<GenerationJob>(`/exports/jobs/${jobId}`);
+
+export const apiListGenerationJobs = (params?: {
+  lesson_id?: string;
+  status?: GenerationJob["status"];
+  page?: number;
+  page_size?: number;
+}): Promise<GenerationJobListResponse> => {
+  const search = new URLSearchParams();
+  Object.entries(params || {}).forEach(([key, value]) => {
+    if (value !== undefined) search.set(key, String(value));
+  });
+  const suffix = search.toString() ? `?${search.toString()}` : "";
+  return apiFetch<GenerationJobListResponse>(`/exports/jobs${suffix}`);
+};
 
 export const apiCancelGenerationJob = (jobId: string): Promise<GenerationJob> =>
   apiFetch<GenerationJob>(`/exports/jobs/${jobId}/cancel`, { method: "POST" });
