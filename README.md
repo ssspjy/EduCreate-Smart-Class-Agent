@@ -216,7 +216,7 @@ npm audit
 pytest -q
 ```
 
-结果（阶段十一验证）：
+结果（阶段十二验证）：
 
 - 前端 Vitest `5 passed`，TypeScript 检查和 Vite 生产构建通过。
 - 后端测试通过：`79 passed`；仍有 `datetime.utcnow()` 弃用警告，不影响当前结果。
