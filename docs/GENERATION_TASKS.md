@@ -51,7 +51,7 @@ generating → cancelling → cancelled
 - `POST /api/v1/exports/jobs/{job_id}/retry`：仅允许 `failed` 或 `cancelled` 任务重试，递增 `retry_count` 并复用原始 `request_json`。
 - `completed` 时 `output.url` 指向现有下载接口，`output.artifact_id` 和 `output.version` 对应持久化产物记录。
 
-预览页优先读取 SSE，并每 1.5 秒查询一次任务作为降级。SSE 断开不会取消任务或丢失结果；任务进入 `completed`、`failed` 或 `cancelled` 后事件流自动结束，单次连接最长 330 秒。
+预览页优先读取 SSE，并每 1.5 秒查询一次任务作为降级；生成历史页提供同一组任务的分页查看、取消和重试操作。SSE 断开不会取消任务或丢失结果；任务进入 `completed`、`failed` 或 `cancelled` 后事件流自动结束，单次连接最长 330 秒。
 
 ## 配置与迁移
 

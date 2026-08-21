@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { Button, Card, Empty, Select, Space, Table, Tag, Typography, message } from "antd";
+import { Button, Card, Empty, Popconfirm, Select, Space, Table, Tag, Typography, message } from "antd";
 import { DownloadOutlined, ReloadOutlined } from "@ant-design/icons";
-import { apiListGenerationJobs } from "../services/api";
+import { apiCancelGenerationJob, apiListGenerationJobs, apiRetryGenerationJob } from "../services/api";
 import type { GenerationJob } from "../services/api";
 
 const { Title, Text } = Typography;
@@ -21,6 +21,7 @@ export default function GenerationHistoryPage() {
   const [status, setStatus] = useState<GenerationJob["status"] | undefined>();
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(false);
+  const [actionJobId, setActionJobId] = useState<string | null>(null);
 
   const load = async () => {
     setLoading(true);
@@ -38,6 +39,32 @@ export default function GenerationHistoryPage() {
   useEffect(() => {
     void load();
   }, [status, page]);
+
+  const cancelJob = async (jobId: string) => {
+    setActionJobId(jobId);
+    try {
+      await apiCancelGenerationJob(jobId);
+      message.success("已请求取消生成任务");
+      await load();
+    } catch (error) {
+      message.error(`取消失败：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setActionJobId(null);
+    }
+  };
+
+  const retryJob = async (jobId: string) => {
+    setActionJobId(jobId);
+    try {
+      await apiRetryGenerationJob(jobId);
+      message.success("已重新提交生成任务");
+      await load();
+    } catch (error) {
+      message.error(`重试失败：${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setActionJobId(null);
+    }
+  };
 
   return (
     <div className="page">
@@ -71,7 +98,23 @@ export default function GenerationHistoryPage() {
                 { title: "状态", dataIndex: "status", render: (value: GenerationJob["status"]) => <Tag color={value === "completed" ? "success" : value === "failed" ? "error" : value === "cancelled" ? "default" : "processing"}>{statusLabel[value]}</Tag> },
                 { title: "进度", dataIndex: "progress", render: (value: number) => `${value}%` },
                 { title: "更新时间", dataIndex: "updated_at", render: (value: string) => new Date(value).toLocaleString() },
-                { title: "操作", key: "action", render: (_: unknown, job: GenerationJob) => job.output?.url ? <Button type="link" icon={<DownloadOutlined />} href={job.output.url}>下载</Button> : null },
+                {
+                  title: "操作",
+                  key: "action",
+                  render: (_: unknown, job: GenerationJob) => (
+                    <Space size="small">
+                      {job.output?.url && <Button type="link" icon={<DownloadOutlined />} href={job.output.url}>下载</Button>}
+                      {(job.status === "queued" || job.status === "generating") && (
+                        <Popconfirm title="确定取消这个生成任务吗？" onConfirm={() => void cancelJob(job.job_id)}>
+                          <Button type="link" danger loading={actionJobId === job.job_id}>取消</Button>
+                        </Popconfirm>
+                      )}
+                      {(job.status === "failed" || job.status === "cancelled") && (
+                        <Button type="link" loading={actionJobId === job.job_id} onClick={() => void retryJob(job.job_id)}>重试</Button>
+                      )}
+                    </Space>
+                  ),
+                },
               ]}
             />
           )}
