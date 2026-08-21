@@ -8,12 +8,14 @@ import {
   Col,
   Divider,
   Empty,
+  Input,
   message,
   Result,
   Row,
   Space,
   Spin,
   Statistic,
+  Tag,
   Typography,
 } from "antd";
 import {
@@ -24,7 +26,7 @@ import {
   ArrowDownOutlined,
 } from "@ant-design/icons";
 import { useWorkflowStore } from "../stores/workflow";
-import { apiApplyPptActions, apiExportDOCX, apiExportPPTX } from "../services/api";
+import { apiApplyPptActions, apiExportDOCX, apiExportPPTX, apiRewritePptInstruction } from "../services/api";
 import type { Outline, PptEditAction } from "../services/api";
 
 const { Title, Text } = Typography;
@@ -38,6 +40,10 @@ export default function PreviewPage() {
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [docxUrl, setDocxUrl] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [instruction, setInstruction] = useState("");
+  const [rewriteLoading, setRewriteLoading] = useState(false);
+  const [pendingActions, setPendingActions] = useState<PptEditAction[]>([]);
+  const [rewriteExplanation, setRewriteExplanation] = useState<string | null>(null);
 
   const currentOutline = outline as Outline | null;
 
@@ -55,6 +61,46 @@ export default function PreviewPage() {
       message.success("结构化编辑已应用");
     } catch (err: unknown) {
       message.error(`编辑失败：${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const handleRewriteInstruction = async () => {
+    if (!currentOutline || !instruction.trim()) {
+      message.warning("请先输入修改意见");
+      return;
+    }
+    setRewriteLoading(true);
+    try {
+      const response = await apiRewritePptInstruction({ outline: currentOutline, instruction: instruction.trim() });
+      setPendingActions(response.actions);
+      setRewriteExplanation(response.explanation);
+      response.warnings.forEach((warning) => message.warning(warning));
+      if (response.actions.length) message.success(`已识别 ${response.actions.length} 个结构化动作，请确认应用`);
+    } catch (err: unknown) {
+      message.error(`意见解析失败：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setRewriteLoading(false);
+    }
+  };
+
+  const handleApplyPending = async () => {
+    if (!currentOutline || !pendingActions.length) return;
+    try {
+      const response = await apiApplyPptActions({
+        outline: currentOutline,
+        actions: pendingActions,
+        lesson_id: lessonId || undefined,
+        instruction: instruction.trim(),
+      });
+      setOutline(response.outline);
+      setPendingActions([]);
+      setRewriteExplanation(null);
+      setStage("idle");
+      setDownloadUrl(null);
+      response.warnings.forEach((warning) => message.warning(warning));
+      message.success("修改意见已应用到大纲");
+    } catch (err: unknown) {
+      message.error(`应用失败：${err instanceof Error ? err.message : String(err)}`);
     }
   };
 
@@ -188,6 +234,33 @@ export default function PreviewPage() {
             {i < currentOutline.sections.length - 1 && <Divider style={{ margin: "12px 0" }} />}
           </div>
         ))}
+      </Card>
+
+      <Card title="教师修改意见" size="small" style={{ marginBottom: 24 }}>
+        <Space direction="vertical" style={{ width: "100%" }}>
+          <Input.TextArea
+            rows={3}
+            value={instruction}
+            onChange={(event) => setInstruction(event.target.value)}
+            placeholder="例如：把第2节上移，增加一个生活案例，并改成现代活泼风格"
+            maxLength={500}
+            showCount
+          />
+          <Space wrap>
+            <Button onClick={() => void handleRewriteInstruction()} loading={rewriteLoading}>
+              识别修改意见
+            </Button>
+            {pendingActions.map((action, index) => (
+              <Tag color="blue" key={`${action.type}-${index}`}>{action.type}</Tag>
+            ))}
+            {pendingActions.length > 0 && (
+              <Button type="primary" onClick={() => void handleApplyPending()}>
+                确认应用
+              </Button>
+            )}
+          </Space>
+          {rewriteExplanation && <Text type="secondary">{rewriteExplanation}</Text>}
+        </Space>
       </Card>
 
       {/* 导出操作 */}

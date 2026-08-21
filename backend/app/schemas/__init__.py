@@ -20,7 +20,7 @@ from app.schemas.lesson_ir import (
     TeachingSlots,
 )
 from app.schemas.materials import ChunkResponse, MaterialDetailResponse, MaterialResponse
-from app.schemas.pptagent import PptAgentApplyRequest, PptAgentApplyResponse, PptEditAction, PptReferenceAnalyzeRequest
+from app.schemas.pptagent import PptAgentApplyRequest, PptAgentApplyResponse, PptAgentRewriteRequest, PptAgentRewriteResponse, PptEditAction, PptReferenceAnalyzeRequest
 
 __all__ = [
     # materials
@@ -29,6 +29,8 @@ __all__ = [
     "MaterialResponse",
     "PptAgentApplyRequest",
     "PptAgentApplyResponse",
+    "PptAgentRewriteRequest",
+    "PptAgentRewriteResponse",
     "PptEditAction",
     "PptReferenceAnalyzeRequest",
     # gps

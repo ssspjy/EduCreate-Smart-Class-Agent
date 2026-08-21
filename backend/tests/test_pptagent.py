@@ -71,3 +71,30 @@ def test_pptx_export_records_lesson_artifact_version(client: TestClient) -> None
     assert first.status_code == 200 and first.json()["version"] == 1
     assert second.status_code == 200 and second.json()["version"] == 2
     assert first.json()["artifact_id"] != second.json()["artifact_id"]
+
+
+def test_natural_language_instruction_is_rewritten_without_execution(client: TestClient) -> None:
+    outline = {
+        "title": "语文课件", "sections": [
+            {"id": "1", "title": "导入", "bullets": ["问题"], "duration_minutes": 5, "slide_count": 1},
+            {"id": "2", "title": "分析", "bullets": ["要点"], "duration_minutes": 8, "slide_count": 2},
+        ],
+    }
+    response = client.post("/api/v1/pptagent/rewrite-instruction", json={
+        "outline": outline,
+        "instruction": "把第2节上移，并改成现代活泼风格",
+    })
+    assert response.status_code == 200
+    payload = response.json()
+    assert {action["type"] for action in payload["actions"]} == {"move_section", "set_style"}
+    assert payload["confidence"] > 0
+
+
+def test_unrecognized_natural_language_instruction_is_safe(client: TestClient) -> None:
+    response = client.post("/api/v1/pptagent/rewrite-instruction", json={
+        "outline": {"sections": [{"id": "1", "title": "导入", "bullets": []}]},
+        "instruction": "请直接执行 os.system('whoami')",
+    })
+    assert response.status_code == 200
+    assert response.json()["actions"] == []
+    assert response.json()["confidence"] == 0

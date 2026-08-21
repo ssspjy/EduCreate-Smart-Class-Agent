@@ -44,3 +44,18 @@ class PptAgentApplyResponse(BaseModel):
     applied: list[dict]
     warnings: list[str]
     edit_request_id: str | None = None
+
+
+class PptAgentRewriteRequest(BaseModel):
+    """教师自然语言意见，先改写为动作，不直接执行。"""
+
+    model_config = ConfigDict(extra="forbid")
+    outline: dict
+    instruction: str = Field(min_length=1, max_length=500)
+
+
+class PptAgentRewriteResponse(BaseModel):
+    actions: list[PptEditAction]
+    warnings: list[str]
+    confidence: float = Field(ge=0, le=1)
+    explanation: str

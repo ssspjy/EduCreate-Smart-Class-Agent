@@ -387,6 +387,19 @@ export const apiApplyPptActions = (body: {
     body: JSON.stringify(body),
   });
 
+export const apiRewritePptInstruction = (body: {
+  outline: Outline;
+  instruction: string;
+}): Promise<{
+  actions: PptEditAction[];
+  warnings: string[];
+  confidence: number;
+  explanation: string;
+}> => apiFetch("/pptagent/rewrite-instruction", {
+  method: "POST",
+  body: JSON.stringify(body),
+});
+
 export const apiAnalyzePptReference = (materialId: string): Promise<{
   material_id: string;
   filename: string;

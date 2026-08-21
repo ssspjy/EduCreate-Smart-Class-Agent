@@ -15,6 +15,10 @@ Invoke-RestMethod -Method Post `
 
 返回页数、每页文本块/字符数、文本密度和固定主题建议。当前只支持 `.pptx`，损坏文件或不存在的受控文件路径返回 4xx。
 
+## 自然语言意见改写
+
+教师可以先调用 `POST /api/v1/pptagent/rewrite-instruction`：请求携带同一份 `outline` 和不超过 500 字的 `instruction`，返回 `actions`、置信度、解释和 warning。该接口只改写不执行，前端展示动作后再调用 `apply-actions`，避免自然语言或模型输出直接改变课件。
+
 ## 应用编辑动作
 
 ```json

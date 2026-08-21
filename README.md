@@ -195,9 +195,10 @@ npm audit
 - [ ] 视频转写模型在比赛环境预下载并完成真实长视频验收
 - [x] 语音输入（Web Speech API + MediaRecorder fallback；录音在 Compose 中后台转写）
 - [x] PPTAgent PPTX 参考页结构分析 + 严格校验编辑 actions + python-pptx 安全重渲染
+- [x] 教师自然语言修改意见改写为安全结构化动作，并在预览页确认应用
 - [x] 教案 python-docx 生成与下载
 - [ ] 互动内容 Jinja2 模板生成
-- [ ] 教师修改意见 → 再生成闭环
+- [x] 教师修改意见 → 结构化动作 → 预览页确认 → 再生成闭环
 - [x] OCR / 视频 / 音频解析接入 Redis + Celery，前端轮询任务进度并支持取消
 - [ ] 使用 SSE 替代材料状态轮询，并扩展到课件生成任务
 
@@ -218,7 +219,7 @@ pytest -q
 结果（阶段十一验证）：
 
 - 前端 Vitest `5 passed`，TypeScript 检查和 Vite 生产构建通过。
-- 后端测试通过：`77 passed`；仍有 `datetime.utcnow()` 弃用警告，不影响当前结果。
+- 后端测试通过：`79 passed`；仍有 `datetime.utcnow()` 弃用警告，不影响当前结果。
 - Compose 中 `postgres`、`redis`、`backend`、`worker`、`frontend` 已实际启动并通过健康检查或任务消费检查。
 - 已用无文本层 PDF 验证 Docker 内中英文 Tesseract 运行链路，OCR chunk 带页码和模态信息。
 - 已在 Docker 容器内生成并上传带音轨的 MP4，FFprobe/FFmpeg 链路通过；默认关闭 Whisper 时保留视频并返回明确 warning，不生成虚假字幕。
@@ -229,7 +230,7 @@ pytest -q
 
 ## 已知边界
 
-- GPS、动态大纲、规则质检和 PPTX 导出已有可运行实现；PPTAgent 当前支持 PPTX 结构统计、章节顺序/要点编辑、三种固定主题和导出版本记录，模型增强与复杂自由排版仍是后续增强。
+- GPS、动态大纲、规则质检和 PPTX 导出已有可运行实现；PPTAgent 当前支持 PPTX 结构统计、教师自然语言意见改写、章节顺序/要点编辑、三种固定主题和导出版本记录，LLM 增强与复杂自由排版仍是后续增强。
 - `/knowledge/search` 在 PostgreSQL 上已使用 chunks 的 pgvector 余弦检索；本地 SQLite 或未安装 BGE 模型时使用确定性的 hash embedding/词法降级。
 - Compose 中 OCR、视频和音频解析由单并发 Celery worker 执行；进度当前通过材料列表轮询，SSE 属于后续增强。本地开发默认同步执行以保持零额外服务依赖。
 - 视频转写默认不下载模型；启用后由 Worker 使用持久化模型卷，仍需在赛前监控模型缓存和单任务耗时。

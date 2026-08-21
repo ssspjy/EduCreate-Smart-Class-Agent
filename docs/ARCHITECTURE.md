@@ -542,11 +542,13 @@ end
 比赛要求的迭代优化不只依赖自动 self-correction，还需要教师反馈闭环：
 
 ```
-教师在预览页提交结构化修改动作
+教师在预览页输入自然语言修改意见
         ↓
 edit_requests 记录原文、目标页、目标元素、当前 artifact 版本
         ↓
-后端 Pydantic 校验 action（不接受代码、路径或任意主题令牌）
+PPTAgent Rewrite 规则解析（默认不联网，可后续接入 LLM）
+        ↓
+教师确认结构化 action；后端 Pydantic 再校验（不接受代码、路径或任意主题令牌）
         ↓
 PPTAgent Editor 应用到 Lesson IR / slide JSON
         ↓
