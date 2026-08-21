@@ -58,10 +58,10 @@ SSE_MAX_SECONDS = 330
 
 class PptxExportRequest(BaseModel):
     """导出请求（与 OutlineResponse 结构对齐）。"""
-    title: str
-    subject: str = ""
-    grade: str = ""
-    sections: list[dict]  # OutlineSection[]
+    title: str = Field(min_length=1, max_length=255)
+    subject: str = Field(default="", max_length=128)
+    grade: str = Field(default="", max_length=128)
+    sections: list[dict] = Field(min_length=1, max_length=50)  # OutlineSection[]
     lesson_id: str | None = None
     actions: list[PptEditAction] = Field(default_factory=list, max_length=30)
 
@@ -87,7 +87,7 @@ async def export_pptx(body: PptxExportRequest, db: Session = Depends(get_db)) ->
         filename = f"{_safe_export_stem(body.title)}_{os.urandom(4).hex()}.pptx"
         filepath = EXPORT_DIR / filename
 
-        outline = body.dict(exclude={"lesson_id", "actions"})
+        outline = body.model_dump(exclude={"lesson_id", "actions"})
         if body.actions:
             outline, _, warnings = apply_actions(outline, body.actions)
         else:

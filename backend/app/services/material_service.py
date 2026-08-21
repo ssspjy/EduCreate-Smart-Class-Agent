@@ -71,20 +71,24 @@ async def _save_upload(file: UploadFile, target: Path, max_bytes: int) -> int:
     """Persist an UploadFile with a hard size limit."""
     size = 0
     target.parent.mkdir(parents=True, exist_ok=True)
-    with target.open("wb") as output:
-        while True:
-            chunk = await file.read(1024 * 1024)
-            if not chunk:
-                break
-            size += len(chunk)
-            if size > max_bytes:
-                output.close()
-                target.unlink(missing_ok=True)
-                raise HTTPException(
-                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                    detail=f"file exceeds {max_bytes} bytes",
-                )
-            output.write(chunk)
+    try:
+        with target.open("wb") as output:
+            while True:
+                chunk = await file.read(1024 * 1024)
+                if not chunk:
+                    break
+                size += len(chunk)
+                if size > max_bytes:
+                    raise HTTPException(
+                        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                        detail=f"file exceeds {max_bytes} bytes",
+                    )
+                output.write(chunk)
+    except Exception:
+        # Never leave a partial upload behind when the stream, filesystem, or
+        # size guard fails. A later retry must be able to reuse the same path.
+        target.unlink(missing_ok=True)
+        raise
     await file.seek(0)
     return size
 

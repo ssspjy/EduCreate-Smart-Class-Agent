@@ -57,6 +57,23 @@ def test_invalid_edit_action_is_rejected(client: TestClient) -> None:
     assert response.status_code == 422
 
 
+def test_sync_export_request_has_bounded_outline_shape(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/exports/pptx",
+        json={"title": "", "sections": [{"title": "章节", "bullets": []}]},
+    )
+    assert response.status_code == 422
+
+    oversized = client.post(
+        "/api/v1/exports/docx",
+        json={
+            "title": "批量章节",
+            "sections": [{"title": str(index), "bullets": []} for index in range(51)],
+        },
+    )
+    assert oversized.status_code == 422
+
+
 def test_pptx_export_records_lesson_artifact_version(client: TestClient) -> None:
     lesson = client.post("/api/v1/lessons", json={"title": "版本测试"})
     assert lesson.status_code == 200
@@ -71,6 +88,11 @@ def test_pptx_export_records_lesson_artifact_version(client: TestClient) -> None
     assert first.status_code == 200 and first.json()["version"] == 1
     assert second.status_code == 200 and second.json()["version"] == 2
     assert first.json()["artifact_id"] != second.json()["artifact_id"]
+
+    downloaded = client.get(first.json()["url"])
+    assert downloaded.status_code == 200
+    generated = Presentation(BytesIO(downloaded.content))
+    assert len(generated.slides) == 3  # cover + TOC + one requested section slide
 
 
 def test_natural_language_instruction_is_rewritten_without_execution(client: TestClient) -> None:

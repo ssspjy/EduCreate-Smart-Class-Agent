@@ -8,7 +8,7 @@ import json
 import logging
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.schemas.gps import ChatMessage
 from app.services.llm.provider import chat_llm
@@ -23,15 +23,15 @@ FIXED_SLOTS = ["subject", "grade", "topic", "objectives", "key_points"]
 class ExtractedIntent(BaseModel):
     """LLM 结构化提取结果（与 TeachingSlots 字段对齐）。"""
 
-    subject: str = ""
-    grade: str = ""
-    topic: str = ""
-    objectives: list[str] = []
-    key_points: list[str] = []
-    difficulty: str = "medium"  # easy | medium | hard
-    style: str = "interactive"  # theory | interactive | experiment
-    activities: list[str] = []
-    prerequisites: list[str] = []
+    subject: str = Field(default="", max_length=128)
+    grade: str = Field(default="", max_length=128)
+    topic: str = Field(default="", max_length=255)
+    objectives: list[str] = Field(default_factory=list, max_length=10)
+    key_points: list[str] = Field(default_factory=list, max_length=10)
+    difficulty: str = Field(default="medium", max_length=32)  # easy | medium | hard
+    style: str = Field(default="interactive", max_length=64)  # theory | interactive | experiment
+    activities: list[str] = Field(default_factory=list, max_length=10)
+    prerequisites: list[str] = Field(default_factory=list, max_length=10)
 
     def to_gps_result(self) -> dict:
         """转为 ClarifyResponse 返回格式。"""

@@ -24,6 +24,28 @@ def test_text_splitter_removes_nul_characters() -> None:
     assert chunks == ["第一段仍是同一段\n第二段"]
 
 
+def test_failed_upload_stream_removes_partial_file(tmp_path: Path) -> None:
+    class BrokenUpload:
+        async def read(self, _chunk_size: int) -> bytes:
+            if not hasattr(self, "called"):
+                self.called = True
+                return b"partial"
+            raise RuntimeError("stream read failed")
+
+        async def seek(self, _position: int) -> None:
+            return None
+
+    target = tmp_path / "uploads" / "partial.bin"
+    try:
+        asyncio.run(material_service._save_upload(BrokenUpload(), target, max_bytes=1024))
+    except RuntimeError as exc:
+        assert str(exc) == "stream read failed"
+    else:
+        raise AssertionError("broken upload should raise")
+
+    assert not target.exists()
+
+
 def test_upload_image_is_persisted_without_fake_chunks(client: TestClient) -> None:
     response = client.post(
         "/api/v1/materials/upload",

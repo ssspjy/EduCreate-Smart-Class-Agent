@@ -11,7 +11,7 @@ import QualityPage from "./pages/QualityPage";
 import GenerationHistoryPage from "./pages/GenerationHistoryPage";
 import { useWorkflowStore } from "./stores/workflow";
 import LoginPage from "./pages/LoginPage";
-import { apiGetCurrentUser, apiLogout } from "./services/api";
+import { apiGetCurrentUser, apiListLessons, apiLogout } from "./services/api";
 
 function RequireAuth({ children }: { children: ReactNode }) {
   const location = useLocation();
@@ -83,9 +83,12 @@ function HealthPage() {
       <p>访问 <code>/api/v1/lessons</code> 验证联调。</p>
       <button
         onClick={async () => {
-          const r = await fetch("/api/v1/lessons");
-          const data = await r.json();
-          alert(`后端响应：${JSON.stringify(data)}`);
+          try {
+            const data = await apiListLessons();
+            alert(`后端响应：${JSON.stringify(data)}`);
+          } catch (error) {
+            alert(`后端请求失败：${error instanceof Error ? error.message : String(error)}`);
+          }
         }}
       >
         测试后端

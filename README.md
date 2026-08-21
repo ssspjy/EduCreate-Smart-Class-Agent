@@ -225,10 +225,11 @@ npm audit
 pytest -q
 ```
 
-结果（阶段十六验证）：
+结果（全量扫描与回归验证）：
 
 - 前端 Vitest `5 passed`，TypeScript 检查和 Vite 生产构建通过。
-- 后端测试通过：`94 passed`；仍有 `datetime.utcnow()` 弃用警告，不影响当前结果。
+- 后端测试通过：`96 passed`；仍有 `datetime.utcnow()` 弃用警告，不影响当前结果。
+- 已修复健康页鉴权请求、PPTX 实际页数与封面统计不一致、示例 CORS 配置格式、GPS/导出请求边界校验，以及上传流异常时残留半成品文件等问题。
 - Compose 中 `postgres`、`redis`、`backend`、`worker`、`frontend` 已实际启动并通过健康检查或任务消费检查。
 - 已验证 Docker 内 PPTX 任务从 `queued` 经 `generating` 到 `completed`，SSE 返回 45%/100% 进度，最终文件可正常下载。
 - 已验证课件任务的协作式取消、取消后重试、旧 Celery task ID 隔离，以及前端重试后的终态刷新。

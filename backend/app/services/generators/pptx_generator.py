@@ -76,7 +76,7 @@ def _add_cover(prs: Presentation, outline: dict) -> None:
     # 总页数
     _add_textbox(
         slide,
-        f"共 {outline.get('total_slides', 0)} 页 · {outline.get('total_duration_minutes', 0)} 分钟",
+        f"共 {_expected_slide_count(outline)} 页 · {_expected_duration(outline)} 分钟",
         left=Inches(0.5), top=Inches(5.0),
         width=Inches(12.33), height=Inches(0.5),
         font_size=Pt(14), color=colors[2],
@@ -110,51 +110,115 @@ def _add_toc(prs: Presentation, outline: dict) -> None:
 
 
 def _add_section(prs: Presentation, section: dict, style: str | None = None) -> None:
-    """单个章节幻灯片（标题页 + 内容页）。"""
+    """Render exactly the requested number of slides for one section."""
     slide_layout = prs.slide_layouts[6]
     title = section.get("title", "未命名章节")
-    bullets = section.get("bullets", [])
-    duration = section.get("duration_minutes", 0)
-    slide_count = section.get("slide_count", 1)
+    bullets = [str(item).strip() for item in section.get("bullets", []) if str(item).strip()]
+    duration = _bounded_int(section.get("duration_minutes", 0), minimum=0)
+    slide_count = _bounded_int(section.get("slide_count", 1), minimum=1)
     colors = _style_colors(style)
 
-    # 标题页
-    slide = prs.slides.add_slide(slide_layout)
+    if slide_count == 1:
+        _add_section_content_slide(
+            prs,
+            slide_layout,
+            title,
+            bullets,
+            duration,
+            colors,
+            compact_title=True,
+        )
+        return
+
+    # 多页章节使用一张标题页，其余页平均承载要点。
+    title_slide = prs.slides.add_slide(slide_layout)
     _add_textbox(
-        slide, title,
+        title_slide, title,
         left=Inches(0.5), top=Inches(2.8),
         width=Inches(12.33), height=Inches(1.2),
         font_size=Pt(40), bold=True, color=colors[0],
     )
     _add_textbox(
-        slide, f"{duration} 分钟 · {slide_count} 页",
+        title_slide, f"{duration} 分钟 · {slide_count} 页",
         left=Inches(0.5), top=Inches(4.2),
         width=Inches(12.33), height=Inches(0.5),
         font_size=Pt(16), color=colors[1],
     )
 
-    # 内容页
-    if bullets:
-        content_slide = prs.slides.add_slide(slide_layout)
-        _add_textbox(
-            content_slide, title,
-            left=Inches(0.5), top=Inches(0.3),
-            width=Inches(12.33), height=Inches(0.8),
-            font_size=Pt(28), bold=True, color=colors[0],
+    content_count = slide_count - 1
+    for page_index in range(content_count):
+        start = len(bullets) * page_index // content_count
+        end = len(bullets) * (page_index + 1) // content_count
+        _add_section_content_slide(
+            prs,
+            slide_layout,
+            title,
+            bullets[start:end],
+            duration,
+            colors,
+            page_index=page_index + 1,
+            content_count=content_count,
         )
 
-        y = Inches(1.3)
-        for bullet in bullets:
-            _add_textbox(
-                content_slide,
-                f"• {bullet}",
-                left=Inches(0.8), top=y,
-                width=Inches(11.5), height=Inches(0.6),
-                font_size=Pt(18), color=colors[1],
-            )
-            y += Inches(0.65)
-            if y > Inches(6.5):
-                break  # 防止超出页面
+
+def _add_section_content_slide(
+    prs: Presentation,
+    slide_layout,
+    title: str,
+    bullets: list[str],
+    duration: int,
+    colors: tuple[str, str, str],
+    *,
+    compact_title: bool = False,
+    page_index: int = 1,
+    content_count: int = 1,
+) -> None:
+    """Add one content slide while keeping text within the fixed canvas."""
+    slide = prs.slides.add_slide(slide_layout)
+    title_text = title if content_count == 1 else f"{title}（{page_index}/{content_count}）"
+    _add_textbox(
+        slide,
+        title_text,
+        left=Inches(0.5), top=Inches(0.35 if not compact_title else 0.6),
+        width=Inches(12.33), height=Inches(0.85),
+        font_size=Pt(28 if not compact_title else 32), bold=True, color=colors[0],
+    )
+    if compact_title:
+        _add_textbox(
+            slide,
+            f"{duration} 分钟",
+            left=Inches(0.5), top=Inches(1.35),
+            width=Inches(12.33), height=Inches(0.4),
+            font_size=Pt(15), color=colors[1],
+        )
+
+    y = Inches(1.8 if compact_title else 1.3)
+    for bullet in bullets[:8]:
+        _add_textbox(
+            slide,
+            f"• {bullet}",
+            left=Inches(0.8), top=y,
+            width=Inches(11.5), height=Inches(0.6),
+            font_size=Pt(18), color=colors[1],
+        )
+        y += Inches(0.65)
+
+
+def _bounded_int(value: object, *, minimum: int) -> int:
+    try:
+        return max(int(value or 0), minimum)
+    except (TypeError, ValueError):
+        return minimum
+
+
+def _expected_slide_count(outline: dict) -> int:
+    sections = outline.get("sections", []) if isinstance(outline, dict) else []
+    return 2 + sum(_bounded_int(section.get("slide_count", 1), minimum=1) for section in sections if isinstance(section, dict))
+
+
+def _expected_duration(outline: dict) -> int:
+    sections = outline.get("sections", []) if isinstance(outline, dict) else []
+    return sum(_bounded_int(section.get("duration_minutes", 0), minimum=0) for section in sections if isinstance(section, dict))
 
 
 def _style_colors(style: str | None) -> tuple[str, str, str]:

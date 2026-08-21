@@ -12,7 +12,7 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import Optional, Union
+from typing import Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
@@ -39,8 +39,8 @@ class TeachingStyle(str, Enum):
 class ChatMessage(BaseModel):
     """对话消息。"""
 
-    role: str = Field(description="角色：user | assistant | system")
-    content: str = Field(description="消息内容")
+    role: Literal["user", "assistant", "system"] = Field(description="角色：user | assistant | system")
+    content: str = Field(min_length=1, max_length=4000, description="消息内容")
 
 
 class ClarifyRequest(BaseModel):
@@ -49,21 +49,25 @@ class ClarifyRequest(BaseModel):
     与原 backend/app/api/v1/gps.py ClarifyRequest 合并。
     """
 
-    query: Optional[str] = Field(default=None, description="本轮用户输入（首次调用必填）")
+    query: Optional[str] = Field(default=None, max_length=4000, description="本轮用户输入（首次调用必填）")
     messages: Optional[list[ChatMessage]] = Field(
         default=None,
+        max_length=24,
         description="多轮对话历史（首次调用可不传）",
     )
     materials: list[str] = Field(
         default_factory=list,
+        max_length=50,
         description="已上传参考材料的 ID 列表",
     )
     lesson_id: Optional[str] = Field(
         default=None,
+        max_length=36,
         description="关联的 lesson workspace ID（用于绑定材料）",
     )
     session_id: Optional[str] = Field(
         default=None,
+        max_length=36,
         description="澄清会话 ID（用于多轮对话状态追踪，不传则自动生成）",
     )
 
@@ -75,11 +79,11 @@ class GpsClarifyResult(BaseModel):
     相比原 gps.py，新增了 style 和 confidence 字段。
     """
 
-    subject: str = Field(default="", description="科目")
-    grade: str = Field(default="", description="年级")
-    topic: str = Field(default="", description="课题/主题")
-    objectives: list[str] = Field(default_factory=list, description="学习目标")
-    key_points: list[str] = Field(default_factory=list, description="教学重点")
+    subject: str = Field(default="", max_length=128, description="科目")
+    grade: str = Field(default="", max_length=128, description="年级")
+    topic: str = Field(default="", max_length=255, description="课题/主题")
+    objectives: list[str] = Field(default_factory=list, max_length=10, description="学习目标")
+    key_points: list[str] = Field(default_factory=list, max_length=10, description="教学重点")
     difficulty: DifficultyLevel = Field(
         default=DifficultyLevel.MEDIUM,
         description="难度等级：easy | medium | hard",

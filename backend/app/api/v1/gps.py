@@ -9,15 +9,14 @@
 """
 
 import logging
-from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from sqlalchemy.orm import Session
 
 from app.schemas.gps import (
     ChatMessage,
+    ClarifyRequest as ClarifyRequestBody,
     ClarifyResponse,
     GpsClarifyResult,
     MissingSlot,
@@ -41,15 +40,6 @@ router = APIRouter(dependencies=[Depends(require_user)])
 
 
 # ── 请求体 ─────────────────────────────────────────────────────────────────────
-
-class ClarifyRequestBody(BaseModel):
-    """GPS 澄清请求（支持首次 + 多轮）。"""
-    query: Optional[str] = None  # 本轮用户输入（首次必填）
-    messages: Optional[list[ChatMessage]] = None  # 对话历史（多轮场景）
-    materials: list[str] = []  # 参考材料 ID 列表
-    lesson_id: Optional[str] = None
-    session_id: Optional[str] = None  # 不传则自动创建新会话
-
 
 # ── GET /slots — 固定槽位定义 ──────────────────────────────────────────────────
 
@@ -93,7 +83,7 @@ async def clarify(body: ClarifyRequestBody, db: Session = Depends(get_db)) -> Cl
     # 多轮场景：重放历史消息（用于前端恢复上下文）
     # 仅当 session 历史为空时才追加（避免页面刷新后重复）
     if body.messages and body.session_id:
-        existing = get_session(body.session_id)
+        existing = load_session(db, body.session_id)
         if existing and len(existing.history) == 0:
             _restore_history(session, body.messages)
 
