@@ -90,7 +90,7 @@
 - **文件存储**：原始资料与生成成果使用后端目录和 Docker 命名卷，减少比赛环境依赖
 - **本地开发**：允许继续使用 SQLite，保证无需 Docker 也能开发和运行测试
 - **数据库迁移**：Alembic 作为结构版本控制；后端容器启动前自动升级，旧 `create_all` 数据卷会先标记基线再迁移
-- **任务状态**：`materials` 保存解析队列状态，`generation_jobs` 保存 PPTX 请求、进度和产物；前端分别订阅材料与生成 SSE，连接异常时回退到 REST 轮询
+- **任务状态**：`materials` 保存解析队列状态，`generation_jobs` 保存 PPTX 请求、进度、取消标记和产物；前端分别订阅材料与生成 SSE，连接异常时回退到 REST 轮询
 - **非比赛硬依赖**：MinIO、Gunicorn 多 Worker、WebSocket / WebTransport 和独立实时网关均放入后续演进，不作为当前完成度声明
 
 ---
@@ -667,6 +667,7 @@ filled_slots (jsonb) slots (jsonb)        job_type/status     scores (jsonb)
 dag_snapshot (jsonb) dag_snapshot (jsonb) progress/task_id    created_at
 created_at           created_at          request_json
                      version             output_json/error
+                                         cancel_requested
                                          created_at/retry_count
 
 generated_artifacts  edit_requests       rag_evidences

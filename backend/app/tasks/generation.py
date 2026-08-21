@@ -17,5 +17,5 @@ settings = get_settings()
 def generate_pptx_task(self, job_id: str) -> dict[str, object]:
     self.update_state(state="STARTED", meta={"job_id": job_id, "progress": 5})
     with SessionLocal() as db:
-        result = run_generation_job(db, job_id)
+        result = run_generation_job(db, job_id, task_id=self.request.id)
     return result.model_dump(mode="json")

@@ -29,7 +29,7 @@ import {
   ArrowDownOutlined,
 } from "@ant-design/icons";
 import { useWorkflowStore } from "../stores/workflow";
-import { apiApplyPptActions, apiCreatePptxJob, apiExportDOCX, apiExportPPTX, apiGenerateInteractive, apiGetGenerationJob, apiRewritePptInstruction, apiSubscribeGenerationJob } from "../services/api";
+import { apiApplyPptActions, apiCancelGenerationJob, apiCreatePptxJob, apiExportDOCX, apiExportPPTX, apiGenerateInteractive, apiGetGenerationJob, apiRetryGenerationJob, apiRewritePptInstruction, apiSubscribeGenerationJob } from "../services/api";
 import type { GenerationJob, InteractionType, Outline, PptEditAction } from "../services/api";
 
 const { Title, Text } = Typography;
@@ -45,6 +45,7 @@ export default function PreviewPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [generationJobId, setGenerationJobId] = useState<string | null>(null);
   const [generationProgress, setGenerationProgress] = useState(0);
+  const [generationJobStatus, setGenerationJobStatus] = useState<GenerationJob["status"] | null>(null);
   const [instruction, setInstruction] = useState("");
   const [rewriteLoading, setRewriteLoading] = useState(false);
   const [pendingActions, setPendingActions] = useState<PptEditAction[]>([]);
@@ -59,6 +60,7 @@ export default function PreviewPage() {
 
   const applyGenerationJob = useCallback((job: GenerationJob) => {
     setGenerationProgress(job.progress);
+    setGenerationJobStatus(job.status);
     if ((job.status === "completed" || job.status === "failed") && settledJobsRef.current.has(job.job_id)) {
       return;
     }
@@ -66,14 +68,19 @@ export default function PreviewPage() {
       settledJobsRef.current.add(job.job_id);
       setDownloadUrl(job.output.url);
       setStage("done");
-      setGenerationJobId(null);
       job.output.warnings?.forEach((warning) => message.warning(warning));
       message.success("PPT 导出成功，点击下载");
     } else if (job.status === "failed") {
       settledJobsRef.current.add(job.job_id);
       setErrorMsg(job.error_message || "课件生成任务失败");
       setStage("error");
-      setGenerationJobId(null);
+    } else if (job.status === "cancelled") {
+      settledJobsRef.current.add(job.job_id);
+      setErrorMsg(job.error_message || "课件生成已取消");
+      setStage("error");
+      message.info("课件生成已取消");
+    } else if (job.status === "cancelling") {
+      message.info("正在等待生成器安全停止");
     }
   }, []);
 
@@ -172,6 +179,8 @@ export default function PreviewPage() {
     }
     setStage("exporting");
     setGenerationProgress(0);
+    setGenerationJobId(null);
+    setGenerationJobStatus(null);
     setErrorMsg(null);
     try {
       if (lessonId) {
@@ -191,6 +200,40 @@ export default function PreviewPage() {
       setErrorMsg(msg);
       setStage("error");
       message.error(`导出失败：${msg}`);
+    }
+  };
+
+  const handleCancelGeneration = async () => {
+    if (!generationJobId) return;
+    try {
+      const job = await apiCancelGenerationJob(generationJobId);
+      applyGenerationJob(job);
+    } catch (err: unknown) {
+      message.error(`取消失败：${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const handleRetryGeneration = async () => {
+    if (!generationJobId) {
+      setStage("idle");
+      return;
+    }
+    // 同一任务取消/失败后重试时，允许新的终态再次驱动界面。
+    settledJobsRef.current.delete(generationJobId);
+    setStage("exporting");
+    setGenerationProgress(0);
+    setErrorMsg(null);
+    try {
+      const job = await apiRetryGenerationJob(generationJobId);
+      applyGenerationJob(job);
+      if (job.status === "queued" || job.status === "generating") {
+        setGenerationJobId(job.job_id);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setErrorMsg(msg);
+      setStage("error");
+      message.error(`重试失败：${msg}`);
     }
   };
 
@@ -393,8 +436,13 @@ export default function PreviewPage() {
               title="正在生成 PPT，请稍候..."
               subTitle={
                 <Space direction="vertical" style={{ width: 360 }}>
-                  <Text type="secondary">后端正在调用 python-pptx 安全渲染大纲内容</Text>
+                  <Text type="secondary">
+                    {generationJobStatus === "cancelling" ? "正在安全停止生成任务" : "后端正在调用 python-pptx 安全渲染大纲内容"}
+                  </Text>
                   <Progress percent={generationProgress} status="active" />
+                  {generationJobId && generationJobStatus !== "cancelling" && (
+                    <Button danger onClick={() => void handleCancelGeneration()}>取消生成</Button>
+                  )}
                 </Space>
               }
             />
@@ -434,7 +482,7 @@ export default function PreviewPage() {
               title="导出失败"
               subTitle={errorMsg || "请稍后重试"}
               extra={[
-                <Button key="retry" type="primary" onClick={() => { setStage("idle"); setGenerationProgress(0); }}>
+                <Button key="retry" type="primary" onClick={() => void handleRetryGeneration()}>
                   重试
                 </Button>,
               ]}

@@ -30,8 +30,10 @@ from app.schemas.pptagent import PptEditAction
 from app.services.generation_service import (
     TERMINAL_GENERATION_STATUSES,
     create_generation_job,
+    cancel_generation_job,
     generation_job_response,
     get_generation_job,
+    retry_generation_job,
 )
 from app.services.pptagent.editor import apply_actions
 
@@ -161,6 +163,26 @@ async def get_pptx_job(job_id: str, db: Session = Depends(get_db)) -> Generation
         return generation_job_response(get_generation_job(db, job_id))
     except LookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
+@router.post("/jobs/{job_id}/cancel", response_model=GenerationJobResponse, summary="取消课件生成任务")
+async def cancel_pptx_job(job_id: str, db: Session = Depends(get_db)) -> GenerationJobResponse:
+    try:
+        return cancel_generation_job(db, job_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+
+@router.post("/jobs/{job_id}/retry", response_model=GenerationJobResponse, summary="重试课件生成任务")
+async def retry_pptx_job(job_id: str, db: Session = Depends(get_db)) -> GenerationJobResponse:
+    try:
+        return retry_generation_job(db, job_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
 
 
 @router.get("/jobs/{job_id}/events", summary="订阅课件生成 SSE 事件")

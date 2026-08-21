@@ -25,4 +25,4 @@ def test_legacy_material_table_upgrades_to_task_status_fields(tmp_path) -> None:
     columns = {column["name"] for column in inspect(engine).get_columns("materials")}
     assert {"parse_progress", "task_id", "cancel_requested"} <= columns
     with engine.connect() as connection:
-        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "e6251c0c4fb2"
+        assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "f3a8d21c6e19"

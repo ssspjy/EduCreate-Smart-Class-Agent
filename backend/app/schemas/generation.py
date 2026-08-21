@@ -39,10 +39,18 @@ class GenerationJobResponse(BaseModel):
     job_id: str
     lesson_id: str
     job_type: Literal["pptx"]
-    status: Literal["queued", "generating", "completed", "failed"]
+    status: Literal["queued", "generating", "cancelling", "cancelled", "completed", "failed"]
     progress: int
     task_id: str | None = None
     output: dict[str, Any] | None = None
     error_message: str | None = None
+    cancel_requested: bool = False
     created_at: datetime
     updated_at: datetime
+
+
+class GenerationActionResponse(BaseModel):
+    """Small response for cancel/retry actions."""
+
+    job: GenerationJobResponse
+    message: str

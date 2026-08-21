@@ -115,6 +115,7 @@ class GenerationJob(Base):
     status = Column(String(32), nullable=False, default="queued", index=True)
     progress = Column(Integer, nullable=False, default=0)
     task_id = Column(String(255), nullable=True, index=True)
+    cancel_requested = Column(Boolean, nullable=False, default=False)
     request_json = Column(JSON, nullable=False, default=dict)
     output_json = Column(JSON, nullable=True)
     error_message = Column(Text, nullable=True)

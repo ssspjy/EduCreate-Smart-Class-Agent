@@ -223,7 +223,7 @@ export interface GenerationJob {
   job_id: string;
   lesson_id: string;
   job_type: "pptx";
-  status: "queued" | "generating" | "completed" | "failed";
+  status: "queued" | "generating" | "cancelling" | "cancelled" | "completed" | "failed";
   progress: number;
   task_id?: string | null;
   output?: {
@@ -527,6 +527,12 @@ export const apiCreatePptxJob = (
 
 export const apiGetGenerationJob = (jobId: string): Promise<GenerationJob> =>
   apiFetch<GenerationJob>(`/exports/jobs/${jobId}`);
+
+export const apiCancelGenerationJob = (jobId: string): Promise<GenerationJob> =>
+  apiFetch<GenerationJob>(`/exports/jobs/${jobId}/cancel`, { method: "POST" });
+
+export const apiRetryGenerationJob = (jobId: string): Promise<GenerationJob> =>
+  apiFetch<GenerationJob>(`/exports/jobs/${jobId}/retry`, { method: "POST" });
 
 /** Subscribe to PPTX generation events; callers retain REST polling fallback. */
 export const apiSubscribeGenerationJob = (

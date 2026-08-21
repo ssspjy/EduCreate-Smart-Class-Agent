@@ -119,6 +119,7 @@ def _ensure_generation_job_columns() -> None:
         "job_type": "VARCHAR(32) NOT NULL DEFAULT 'pptx'",
         "progress": "INTEGER NOT NULL DEFAULT 0",
         "task_id": "VARCHAR(255)",
+        "cancel_requested": "BOOLEAN NOT NULL DEFAULT 0",
         "request_json": "JSON NOT NULL DEFAULT '{}'",
         "error_message": "TEXT",
     }
