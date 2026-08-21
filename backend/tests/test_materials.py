@@ -11,6 +11,7 @@ from app.db import SessionLocal
 from app.models import Chunk
 from app.services.parsers import parser as parser_module
 from app.services.parsers.ocr import OCRResult
+from app.services.parsers.video import TranscriptSegment, VideoParseResult
 
 
 def test_upload_image_is_persisted_without_fake_chunks(client: TestClient) -> None:
@@ -204,6 +205,32 @@ def test_upload_filename_path_is_sanitized(client: TestClient) -> None:
     assert response.status_code == 200
     payload = response.json()
     assert payload["filename"] == "escape.png"
+
+
+def test_upload_video_persists_timestamped_transcript_chunks(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    def fake_parse_video(*args, **kwargs) -> VideoParseResult:
+        return VideoParseResult(
+            duration_seconds=4.2,
+            segments=[TranscriptSegment(start=0.4, end=2.1, text="光的折射定律")],
+        )
+
+    monkeypatch.setattr(parser_module, "parse_video", fake_parse_video)
+    response = client.post(
+        "/api/v1/materials/upload",
+        files={"file": ("lesson.mp4", b"mock-video", "video/mp4")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "parsed"
+    chunks = client.get(f"/api/v1/materials/{payload['file_id']}/chunks").json()
+    assert chunks[0]["content"] == "[0.4s–2.1s] 光的折射定律"
+    assert chunks[0]["media_ref"].endswith(".mp4#t=0.4-2.1")
+    assert payload["file_id"] in chunks[0]["media_ref"]
+    assert chunks[0]["modality"] == "transcript"
 
 
 def test_corrupt_supported_file_is_recorded_as_failed(client: TestClient) -> None:

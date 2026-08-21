@@ -59,8 +59,19 @@ services:
       - OCR_TIMEOUT_SECONDS=${OCR_TIMEOUT_SECONDS:-30}
       - OCR_MAX_PAGES=${OCR_MAX_PAGES:-30}
       - OCR_MAX_PIXELS=${OCR_MAX_PIXELS:-20000000}
+      - VIDEO_TRANSCRIPTION_ENABLED=${VIDEO_TRANSCRIPTION_ENABLED:-false}
+      - VIDEO_WHISPER_MODEL=${VIDEO_WHISPER_MODEL:-tiny}
+      - VIDEO_WHISPER_MODEL_PATH=${VIDEO_WHISPER_MODEL_PATH:-}
+      - VIDEO_WHISPER_MODEL_CACHE_DIR=${VIDEO_WHISPER_MODEL_CACHE_DIR:-/models/whisper}
+      - VIDEO_ALLOW_MODEL_DOWNLOAD=${VIDEO_ALLOW_MODEL_DOWNLOAD:-false}
+      - VIDEO_WHISPER_DEVICE=${VIDEO_WHISPER_DEVICE:-cpu}
+      - VIDEO_WHISPER_COMPUTE_TYPE=${VIDEO_WHISPER_COMPUTE_TYPE:-int8}
+      - VIDEO_WHISPER_LANGUAGE=${VIDEO_WHISPER_LANGUAGE:-zh}
+      - VIDEO_MAX_DURATION_SECONDS=${VIDEO_MAX_DURATION_SECONDS:-1800}
+      - VIDEO_TRANSCRIPTION_TIMEOUT_SECONDS=${VIDEO_TRANSCRIPTION_TIMEOUT_SECONDS:-300}
     volumes:
       - backend_uploads:/app/uploads
+      - whisper_models:/models/whisper
     depends_on:
       postgres:
         condition: service_healthy
@@ -85,3 +96,4 @@ services:
 volumes:
   postgres_data:
   backend_uploads:
+  whisper_models:

@@ -45,6 +45,16 @@ class Settings(BaseSettings):
     ocr_timeout_seconds: int = Field(default=30, ge=1, le=120)
     ocr_max_pages: int = Field(default=30, ge=1, le=100)
     ocr_max_pixels: int = Field(default=20_000_000, ge=1_000_000, le=50_000_000)
+    video_transcription_enabled: bool = False
+    video_whisper_model: str = "tiny"
+    video_whisper_model_path: str = ""
+    video_whisper_model_cache_dir: str = "./data/whisper-models"
+    video_allow_model_download: bool = False
+    video_whisper_device: str = "cpu"
+    video_whisper_compute_type: str = "int8"
+    video_whisper_language: str = "zh"
+    video_max_duration_seconds: int = Field(default=1800, ge=10, le=7200)
+    video_transcription_timeout_seconds: int = Field(default=300, ge=30, le=3600)
 
     model_config = SettingsConfigDict(
         env_file=".env",

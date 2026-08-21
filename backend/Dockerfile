@@ -3,8 +3,9 @@ FROM python:3.11-slim
 WORKDIR /app
 
 # curl 用于 healthcheck；Tesseract 及中英文语言包用于图片和扫描 PDF OCR。
-RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y --no-install-recommends \
+RUN DEBIAN_FRONTEND=noninteractive apt-get -o Acquire::Retries=5 update && apt-get install -y --no-install-recommends \
     curl \
+    ffmpeg \
     tesseract-ocr \
     tesseract-ocr-chi-sim \
     tesseract-ocr-eng \

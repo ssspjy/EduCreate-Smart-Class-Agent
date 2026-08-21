@@ -7,6 +7,7 @@ from typing import Optional
 
 from app.core.config import get_settings
 from app.services.parsers.ocr import ocr_image, ocr_pdf_pages
+from app.services.parsers.video import parse_video
 
 
 @dataclass
@@ -170,7 +171,17 @@ async def parse(file_path: str, file_type: str) -> ParseResult:
         ]
         return ParseResult(chunks=chunks, warnings=ocr_result.warnings)
     if extension == "mp4":
-        return ParseResult(chunks=[], warnings=["video transcription is not connected yet"])
+        settings = get_settings()
+        video_result = await asyncio.to_thread(parse_video, path, settings)
+        chunks = [
+            ParsedChunk(
+                content=f"[{segment.start:.1f}s–{segment.end:.1f}s] {segment.text}",
+                media_ref=f"{path.name}#t={segment.start:.1f}-{segment.end:.1f}",
+                modality="transcript",
+            )
+            for segment in video_result.segments
+        ]
+        return ParseResult(chunks=chunks, warnings=video_result.warnings)
     if extension in {"doc", "ppt"}:
         return ParseResult(chunks=[], warnings=["legacy Office formats require conversion before parsing"])
 

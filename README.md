@@ -5,7 +5,7 @@
 ## 项目简介
 
 面向教师的比赛级“智能备课”纯 Web 应用，目标能力包括：
-- 教学材料解析（PDF / DOCX / PPTX / Markdown / TXT，以及图片和扫描 PDF OCR；视频保留上传接口）
+- 教学材料解析（PDF / DOCX / PPTX / Markdown / TXT、图片和扫描 PDF OCR，以及可选视频转写）
 - 多轮对话澄清教学意图（GPS 模块）
 - 课件与教案生成（PPTAgent 模块）
 - 知识库检索增强（BGE-M3 + pgvector）
@@ -46,6 +46,7 @@ EduCreate-Smart-Class-Agent/
 | LLM | DeepSeek 主用，OpenAI-compatible provider 兜底 |
 | Embedding | PostgreSQL pgvector；默认 hash embedding，可选 BGE-M3 provider |
 | OCR | PDFium + Pillow + Tesseract（简体中文 / 英文） |
+| 视频 | FFmpeg + 可选 `faster-whisper`（模型显式配置） |
 | 重排 | 词法/向量基础召回；bge-reranker-v2-m3 待接入 |
 | PPTX 导出 | 后端 `python-pptx` |
 | 通信 | REST API；SSE 作为后续生成进度增强 |
@@ -68,6 +69,8 @@ Docker Compose 启动 `frontend`、`backend`、`PostgreSQL + pgvector`，并为�
 | `OCR_MAX_PAGES` | `30` | 单个 PDF 的 OCR 页数上限 |
 | `OCR_TIMEOUT_SECONDS` | `30` | 单页识别超时秒数 |
 | `OCR_MAX_PIXELS` | `20000000` | 单页进入识别前的像素上限 |
+
+视频转写默认关闭，模型路径、下载策略和 Docker 卷配置见 [`docs/VIDEO.md`](./docs/VIDEO.md)。
 
 ```bash
 # 在仓库根目录
@@ -168,7 +171,7 @@ npm audit
 - [x] 参考资料安全上传落盘（UUID 目录、扩展名白名单、大小限制）
 - [x] PDF / DOCX / PPTX 文本解析并写入 chunks
 - [x] 图片及扫描 PDF 使用 Tesseract 中英文 OCR，保留页码和 `ocr` 模态；失败时明确降级告警
-- [x] 视频上传保存但不伪造字幕内容，等待 Whisper 接入
+- [x] 视频 FFmpeg 探测、音频提取和可选 Whisper 转写接口（默认关闭模型下载）
 - [x] **阶段一完成**：意图澄清页面（ClarifyPage）完整实现，含 DAG 可视化、追问建议、提交后 session_id 持久化、GPT-4o 预览能力、Ant Design 五步进度条、Vite 代理端口修正（8001）
 - [x] GPS 槽位提取、动态追问与 DAG 完成度计算
 - [x] 基于 GPS 字段动态生成课件大纲
@@ -180,7 +183,7 @@ npm audit
 - [x] 为 chunks 增加 1024 维向量字段、写入和 pgvector 检索查询（Compose 已提供 pgvector 数据库）
 - [ ] BGE-M3 模型服务接入（当前支持 `EMBEDDING_PROVIDER=bge`，未安装模型时自动 hash 降级）
 - [x] 图片 / 扫描 PDF OCR 解析流水线
-- [ ] 视频转写解析流水线
+- [ ] 视频转写模型在比赛环境预下载并完成真实长视频验收
 - [ ] 语音输入（Web Speech API + MediaRecorder fallback）
 - [ ] PPTAgent 参考页分析 + 编辑 actions + self-correction
 - [x] 教案 python-docx 生成与下载
@@ -201,12 +204,13 @@ npm audit
 pytest -q
 ```
 
-结果（阶段五验证）：
+结果（阶段六验证）：
 
 - 前端 TypeScript 检查和 Vite 生产构建通过。
-- 后端测试通过：`64 passed`；仍有 `datetime.utcnow()` 弃用警告，不影响当前结果。
+- 后端测试通过：`65 passed`；仍有 `datetime.utcnow()` 弃用警告，不影响当前结果。
 - Compose 中 `postgres`、`backend`、`frontend` 已实际启动并通过健康检查。
 - 已用无文本层 PDF 验证 Docker 内中英文 Tesseract 运行链路，OCR chunk 带页码和模态信息。
+- 已在 Docker 容器内生成并上传带音轨的 MP4，FFprobe/FFmpeg 链路通过；默认关闭 Whisper 时保留视频并返回明确 warning，不生成虚假字幕。
 
 测试使用 `backend/tests/_tmp/` 隔离 SQLite 数据库、上传文件和 pytest cache，避免污染开发数据。Docker 模式单独使用 PostgreSQL + pgvector。
 
@@ -215,6 +219,7 @@ pytest -q
 - GPS、动态大纲、规则质检和 PPTX 导出已有可运行实现；PPTAgent 的参考页编辑范式和模型增强仍需补齐。
 - `/knowledge/search` 在 PostgreSQL 上已使用 chunks 的 pgvector 余弦检索；本地 SQLite 或未安装 BGE 模型时使用确定性的 hash embedding/词法降级。
 - OCR 当前由上传请求同步等待，但解析工作不阻塞事件循环，并限制并发、页数、DPI、像素和单页超时；任务队列与进度推送属于后续增强。
+- 视频转写默认不下载模型；启用后仍需把耗时任务迁移到 Redis/Celery，并增加取消、进度和模型缓存监控。
 - 本地直接运行默认使用 SQLite，数据位于 `backend/data/` 与 `backend/uploads/`；Docker 使用 PostgreSQL 和命名卷，测试数据位于 `backend/tests/_tmp/`。
 - 比赛版正式 PPT 导出路径是后端 `python-pptx`；PptxGenJS 仅保留为未来浏览器内编辑的候选方案。
 - Redis / Celery、MinIO 和 WebTransport 暂不进入比赛版运行时，除非对应业务能力真正接入。

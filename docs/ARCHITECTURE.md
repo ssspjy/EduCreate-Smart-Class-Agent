@@ -26,7 +26,7 @@
 ```
    教师上传讲义 / 课件 / 视频 / 图片
                 ↓
-        多模态解析（PDF / DOCX / PPTX / OCR / 视频帧 / 音频字幕）
+        多模态解析（PDF / DOCX / PPTX / OCR / 视频探测 / 音频字幕）
                 ↓
         知识抽取 + 切块 + 向量化（BGE-M3 / pgvector）
                 ↓
@@ -84,7 +84,7 @@
 - **文件存储**：原始资料与生成成果使用后端目录和 Docker 命名卷，减少比赛环境依赖
 - **本地开发**：允许继续使用 SQLite，保证无需 Docker 也能开发和运行测试
 - **数据库迁移**：Alembic 作为结构版本控制；启动时保留幂等兼容检查，避免旧比赛数据卷在升级期间不可用
-- **条件接入**：OCR、视频转写或生成任务出现明显长耗时后，引入 Redis + Celery，并使用 SSE 推送进度
+- **条件接入**：OCR、视频转写或生成任务出现明显长耗时后，引入 Redis + Celery，并使用 SSE 推送进度；当前 OCR/视频解析仍由线程隔离并受资源上限保护
 - **非比赛硬依赖**：MinIO、Gunicorn 多 Worker、WebSocket / WebTransport 和独立实时网关均放入后续演进，不作为当前完成度声明
 
 ---
@@ -145,7 +145,7 @@ backend/
 │   │   │   ├── editor.py       # Stage II：编辑 actions 生成
 │   │   │   ├── executor.py     # 5 类错误兜底 + self-correction
 │   │   │   └── ppteval.py      # 视觉质检（Content/Design/Coherence）
-│   │   ├── parsers/            # 文档解析 + PDFium/Pillow/Tesseract OCR
+│   │   ├── parsers/            # 文档解析 + OCR + FFmpeg/可选 Whisper
 │   │   └── generators/         # python-docx（教案）+ Jinja2（模板）
 │   ├── db/                     # PostgreSQL + Alembic 迁移
 │   └── utils/
@@ -202,13 +202,13 @@ LLM 不直接散落在业务代码中调用，统一经过 `services/llm/provide
 | Word (docx) | python-docx 解析段落、表格、页眉和页脚 | `chunks`（文档级） |
 | PPT (pptx) | python-pptx 提取幻灯片文本 | `chunks`（页码） |
 | 图片 (png/jpg) | Pillow 预处理 + Tesseract 中英文识别 | `chunks`（ocr 模态） |
-| 视频 (mp4) | FFmpeg 抽关键帧 → OpenCV 帧处理 → faster-whisper 音频转写 + Qwen2-VL 描述 | `chunks` (帧级 + 时间戳 + 字幕) |
+| 视频 (mp4) | FFprobe 校验 → FFmpeg 音频提取 → 可选 faster-whisper 转写 | `chunks`（时间戳 + transcript 模态） |
 
 ### 3.5.1.1 解析流水线
 
 上传不是只保存文件，而是进入统一解析任务：
 
-> 当前实现：本地开发使用 SQLite，Compose 使用 PostgreSQL + pgvector；两种模式均通过后端文件目录保存上传内容。PDF / DOCX / PPTX / Markdown / TXT 和图片 OCR 会写入 chunks 与 1024 维 embedding；扫描 PDF 仅对无文本页执行 OCR。PostgreSQL 走 pgvector 余弦检索，SQLite 走词法降级。BGE-M3、视频转写和异步任务仍待完整接入。
+> 当前实现：本地开发使用 SQLite，Compose 使用 PostgreSQL + pgvector；两种模式均通过后端文件目录保存上传内容。PDF / DOCX / PPTX / Markdown / TXT、图片 OCR 和启用后的 MP4 转写会写入 chunks 与 1024 维 embedding；扫描 PDF 仅对无文本页执行 OCR。PostgreSQL 走 pgvector 余弦检索，SQLite 走词法降级。BGE-M3、视频关键帧理解和异步任务仍待完整接入。
 
 ```
 POST /api/v1/materials/upload
@@ -308,7 +308,8 @@ slide 渲染逻辑：
 
 | 场景 | 处理 |
 |---|---|
-| 视频只有 mp4，无内置字幕 | 仅靠关键帧 caption，文字检索能力弱，前端 UI 给出明确提示 |
+| 视频只有 mp4，无内置字幕 | 默认仅完成 FFprobe 校验；启用并配置 Whisper 后生成时间戳转写，关键帧理解仍是后续能力 |
+| 视频转写未启用或模型不可用 | 保留视频和元数据，返回 warning，不生成虚假字幕 chunk |
 | 图片 OCR 失败 | 保存原始材料并返回明确 warning，不生成虚假 chunk；视觉向量检索待接入 |
 | 教师没明确"用到哪里" | 默认归入 RAG 全局检索，不绑特定 slide |
 | 绑定冲突（同一段绑多个 slide） | 取最相似 + 教师确认 |
@@ -712,6 +713,7 @@ created_at           action_json        excerpt (text)
 | 部署 | **Docker Compose** + **Nginx** | 一键部署，负载均衡，静态托管 |
 | 后端测试 | **Pytest** | 单元测试 + 集成测试 |
 | OCR | **pypdfium2 + Pillow + Tesseract** | 仅处理图片和 PDF 无文本页；Docker 内置中英文语言包并设置资源边界 |
+| 视频转写 | **FFmpeg + faster-whisper（可选）** | 默认不下载模型；模型路径显式配置，避免上传请求隐式联网和资源失控 |
 | Embedding | **BGE-M3**（中文 dense / sparse / multi-vector 三路召回） | 多语言，文本检索主力 |
 | 视觉检索 | **ColPali**（PDF / PPT 页面图像细粒度视觉检索） | 图像型资料的语义定位 |
 | 重排 | **bge-reranker-v2-m3** | 检索后重排序，提升相关性 |
@@ -775,6 +777,7 @@ created_at           action_json        excerpt (text)
 ## 10. 后续文档
 
 - `docs/OCR.md` — OCR 配置、运行边界与冒烟排障（已提供）
+- `docs/VIDEO.md` — 视频探测、音频提取和 Whisper 配置（已提供）
 - `docs/GPS_INTEGRATION.md` — GPS 接入详细设计
 - `docs/PPTAGENT_INTEGRATION.md` — PPTAgent 接入详细设计
 - `docs/INTERACTIVE_CONTENT.md` — 动画 / 小游戏模板与导出设计

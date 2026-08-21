@@ -10,6 +10,7 @@ python-pptx==1.0.2
 pypdfium2==5.12.1
 pytesseract==0.3.13
 Pillow==12.3.0
+faster-whisper==1.2.1
 
 # Auth / Security
 python-jose[cryptography]==3.3.0
