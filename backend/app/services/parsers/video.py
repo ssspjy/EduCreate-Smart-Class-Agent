@@ -100,6 +100,19 @@ def _extract_audio(path: Path, output_path: Path, timeout: int) -> str | None:
     return None
 
 
+def _cached_model_path(model_name: str, download_root: str) -> str | None:
+    """Resolve a previously prepared Hugging Face snapshot without network access."""
+    if not model_name or not download_root:
+        return None
+    model_dir = Path(download_root) / f"models--Systran--faster-whisper-{model_name}"
+    revision_file = model_dir / "refs" / "main"
+    if not revision_file.is_file():
+        return None
+    revision = revision_file.read_text(encoding="utf-8").strip()
+    snapshot = model_dir / "snapshots" / revision
+    return str(snapshot) if snapshot.is_dir() else None
+
+
 def _get_model(
     model_path: str,
     device: str,
@@ -170,11 +183,15 @@ def parse_video(path: Path, settings: object) -> VideoParseResult:
     if not settings.video_transcription_enabled:
         result.warnings.append("视频已验证，但 Whisper 转写未启用")
         return result
-    if not settings.video_whisper_model_path and not settings.video_allow_model_download:
+    local_model_path = settings.video_whisper_model_path or _cached_model_path(
+        settings.video_whisper_model,
+        settings.video_whisper_model_cache_dir,
+    )
+    if not local_model_path and not settings.video_allow_model_download:
         result.warnings.append("视频转写已启用，但未配置本地 Whisper 模型路径")
         return result
 
-    model_path = settings.video_whisper_model_path or settings.video_whisper_model
+    model_path = local_model_path or settings.video_whisper_model
     try:
         with tempfile.TemporaryDirectory(prefix="educreate-video-") as temp_dir:
             audio_path = Path(temp_dir) / "audio.wav"

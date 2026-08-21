@@ -172,6 +172,7 @@ npm audit
 - [x] PDF / DOCX / PPTX 文本解析并写入 chunks
 - [x] 图片及扫描 PDF 使用 Tesseract 中英文 OCR，保留页码和 `ocr` 模态；失败时明确降级告警
 - [x] 视频 FFmpeg 探测、音频提取和可选 Whisper 转写接口（默认关闭模型下载）
+- [x] Whisper 模型显式预下载脚本与模型缺失/时长上限防护
 - [x] **阶段一完成**：意图澄清页面（ClarifyPage）完整实现，含 DAG 可视化、追问建议、提交后 session_id 持久化、GPT-4o 预览能力、Ant Design 五步进度条、Vite 代理端口修正（8001）
 - [x] GPS 槽位提取、动态追问与 DAG 完成度计算
 - [x] 基于 GPS 字段动态生成课件大纲
@@ -204,13 +205,14 @@ npm audit
 pytest -q
 ```
 
-结果（阶段六验证）：
+结果（阶段七验证）：
 
 - 前端 TypeScript 检查和 Vite 生产构建通过。
-- 后端测试通过：`65 passed`；仍有 `datetime.utcnow()` 弃用警告，不影响当前结果。
+- 后端测试通过：`68 passed`；仍有 `datetime.utcnow()` 弃用警告，不影响当前结果。
 - Compose 中 `postgres`、`backend`、`frontend` 已实际启动并通过健康检查。
 - 已用无文本层 PDF 验证 Docker 内中英文 Tesseract 运行链路，OCR chunk 带页码和模态信息。
 - 已在 Docker 容器内生成并上传带音轨的 MP4，FFprobe/FFmpeg 链路通过；默认关闭 Whisper 时保留视频并返回明确 warning，不生成虚假字幕。
+- 已通过显式模型准备脚本下载 tiny 模型，并在临时开启转写的后端容器中完成真实短视频上传，生成带时间戳的 transcript chunk；验证后已恢复默认关闭转写。
 
 测试使用 `backend/tests/_tmp/` 隔离 SQLite 数据库、上传文件和 pytest cache，避免污染开发数据。Docker 模式单独使用 PostgreSQL + pgvector。
 

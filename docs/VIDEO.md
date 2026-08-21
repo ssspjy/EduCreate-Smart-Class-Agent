@@ -42,8 +42,25 @@ VIDEO_WHISPER_MODEL=tiny
 ```env
 VIDEO_TRANSCRIPTION_ENABLED=true
 VIDEO_ALLOW_MODEL_DOWNLOAD=false
+# 可选：填写 prepare_whisper.ps1 输出的 snapshot 路径
+VIDEO_WHISPER_MODEL_PATH=/models/whisper/models--Systran--faster-whisper-tiny/snapshots/<revision>
+```
+
+推荐在比赛部署前使用仓库脚本显式准备模型；脚本只执行模型下载，不会修改上传接口的默认开关：
+
+```powershell
+.\scripts\prepare_whisper.ps1 -Model tiny
+```
+
+模型准备成功后，再在 `.env` 中启用转写并重新创建后端容器：
+
+```env
+VIDEO_TRANSCRIPTION_ENABLED=true
+VIDEO_ALLOW_MODEL_DOWNLOAD=false
 VIDEO_WHISPER_MODEL_PATH=/models/whisper/tiny
 ```
+
+模型准备脚本会输出实际的 snapshot 路径；也可以不填写 `VIDEO_WHISPER_MODEL_PATH`，后端会在缓存卷中自动解析已准备的 `faster-whisper` snapshot。模型准备失败时不要打开上传侧的隐式下载，先检查网络、磁盘空间和 CPU/GPU 配置。
 
 ## 冒烟检查
 
