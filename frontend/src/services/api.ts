@@ -176,6 +176,17 @@ export type PptEditAction =
   | { type: "remove_bullet"; section_id: string; bullet_index: number }
   | { type: "set_style"; style: "classic" | "modern" | "minimal" };
 
+export type InteractionType = "choice" | "true_false" | "fill_blank";
+
+export interface InteractiveItem {
+  id: string;
+  type: InteractionType;
+  prompt: string;
+  options: string[];
+  answer: string;
+  explanation: string;
+}
+
 export interface QualityReport {
   score: number;
   clarity: number;
@@ -410,6 +421,21 @@ export const apiAnalyzePptReference = (materialId: string): Promise<{
 }> => apiFetch("/pptagent/analyze-reference", {
   method: "POST",
   body: JSON.stringify({ material_id: materialId }),
+});
+
+export const apiGenerateInteractive = (body: {
+  outline: Outline;
+  interaction_type: InteractionType;
+  count: number;
+  section_id?: string;
+}): Promise<{
+  interaction_type: InteractionType;
+  items: InteractiveItem[];
+  html: string;
+  warnings: string[];
+}> => apiFetch("/interactive/generate", {
+  method: "POST",
+  body: JSON.stringify(body),
 });
 
 export const apiExportPPTX = (

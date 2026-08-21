@@ -9,9 +9,11 @@ import {
   Divider,
   Empty,
   Input,
+  InputNumber,
   message,
   Result,
   Row,
+  Select,
   Space,
   Spin,
   Statistic,
@@ -26,8 +28,8 @@ import {
   ArrowDownOutlined,
 } from "@ant-design/icons";
 import { useWorkflowStore } from "../stores/workflow";
-import { apiApplyPptActions, apiExportDOCX, apiExportPPTX, apiRewritePptInstruction } from "../services/api";
-import type { Outline, PptEditAction } from "../services/api";
+import { apiApplyPptActions, apiExportDOCX, apiExportPPTX, apiGenerateInteractive, apiRewritePptInstruction } from "../services/api";
+import type { InteractionType, Outline, PptEditAction } from "../services/api";
 
 const { Title, Text } = Typography;
 
@@ -44,6 +46,10 @@ export default function PreviewPage() {
   const [rewriteLoading, setRewriteLoading] = useState(false);
   const [pendingActions, setPendingActions] = useState<PptEditAction[]>([]);
   const [rewriteExplanation, setRewriteExplanation] = useState<string | null>(null);
+  const [interactionType, setInteractionType] = useState<InteractionType>("choice");
+  const [interactionCount, setInteractionCount] = useState(3);
+  const [interactionHtml, setInteractionHtml] = useState<string | null>(null);
+  const [interactionLoading, setInteractionLoading] = useState(false);
 
   const currentOutline = outline as Outline | null;
 
@@ -101,6 +107,25 @@ export default function PreviewPage() {
       message.success("修改意见已应用到大纲");
     } catch (err: unknown) {
       message.error(`应用失败：${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const handleGenerateInteractive = async () => {
+    if (!currentOutline) return;
+    setInteractionLoading(true);
+    try {
+      const response = await apiGenerateInteractive({
+        outline: currentOutline,
+        interaction_type: interactionType,
+        count: interactionCount,
+      });
+      setInteractionHtml(response.html);
+      response.warnings.forEach((warning) => message.warning(warning));
+      if (response.items.length) message.success(`已生成 ${response.items.length} 道互动题`);
+    } catch (err: unknown) {
+      message.error(`互动内容生成失败：${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setInteractionLoading(false);
     }
   };
 
@@ -261,6 +286,33 @@ export default function PreviewPage() {
           </Space>
           {rewriteExplanation && <Text type="secondary">{rewriteExplanation}</Text>}
         </Space>
+      </Card>
+
+      <Card title="课堂互动内容" size="small" style={{ marginBottom: 24 }}>
+        <Space wrap>
+          <Select
+            value={interactionType}
+            style={{ width: 140 }}
+            onChange={(value: InteractionType) => setInteractionType(value)}
+            options={[
+              { value: "choice", label: "选择题" },
+              { value: "true_false", label: "判断题" },
+              { value: "fill_blank", label: "填空题" },
+            ]}
+          />
+          <InputNumber min={1} max={5} value={interactionCount} onChange={(value) => setInteractionCount(value || 1)} />
+          <Button type="primary" onClick={() => void handleGenerateInteractive()} loading={interactionLoading}>
+            生成互动题
+          </Button>
+        </Space>
+        {interactionHtml && (
+          <iframe
+            title="课堂互动预览"
+            sandbox=""
+            srcDoc={interactionHtml}
+            style={{ width: "100%", minHeight: 320, border: "1px solid #e5e7eb", borderRadius: 8, marginTop: 16 }}
+          />
+        )}
       </Card>
 
       {/* 导出操作 */}

@@ -21,6 +21,7 @@ from app.schemas.lesson_ir import (
 )
 from app.schemas.materials import ChunkResponse, MaterialDetailResponse, MaterialResponse
 from app.schemas.pptagent import PptAgentApplyRequest, PptAgentApplyResponse, PptAgentRewriteRequest, PptAgentRewriteResponse, PptEditAction, PptReferenceAnalyzeRequest
+from app.schemas.interactive import InteractiveGenerateRequest, InteractiveGenerateResponse, InteractiveItem
 
 __all__ = [
     # materials
@@ -33,6 +34,9 @@ __all__ = [
     "PptAgentRewriteResponse",
     "PptEditAction",
     "PptReferenceAnalyzeRequest",
+    "InteractiveGenerateRequest",
+    "InteractiveGenerateResponse",
+    "InteractiveItem",
     # gps
     "ChatMessage",
     "ClarifyRequest",

@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter
 
-from app.api.v1 import auth, exports, gps, knowledge, lessons, materials, pptagent, quality, teachers
+from app.api.v1 import auth, exports, gps, interactive, knowledge, lessons, materials, pptagent, quality, teachers
 
 api_router = APIRouter()
 api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
@@ -14,3 +14,4 @@ api_router.include_router(exports.router, prefix="/exports", tags=["exports"])
 api_router.include_router(gps.router, prefix="/gps", tags=["gps"])
 api_router.include_router(quality.router, prefix="/quality", tags=["quality"])
 api_router.include_router(pptagent.router, prefix="/pptagent", tags=["pptagent"])
+api_router.include_router(interactive.router, prefix="/interactive", tags=["interactive"])
