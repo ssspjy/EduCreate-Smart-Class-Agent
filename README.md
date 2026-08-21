@@ -21,7 +21,8 @@ EduCreate-Smart-Class-Agent/
 ├── frontend/                      # React + Vite + TS 前端（按 §3.1 文档对齐）
 ├── docs/
 │   ├── ARCHITECTURE.md            # 架构文档（设计源）
-│   └── ASYNC_TASKS.md             # 材料任务队列、API 与运维说明
+│   ├── ASYNC_TASKS.md             # 材料任务队列、API 与运维说明
+│   └── PPTAGENT.md                # 参考 PPT 分析、编辑动作与导出版本说明
 ├── docker/
 │   └── postgres/init.sql           # Compose 初始化 pgvector 扩展
 ├── scripts/
@@ -157,7 +158,7 @@ npm audit
 
 ✅ 已完成
 - [x] 项目骨架（frontend + backend 双端）
-- [x] 后端 8 个 API 路由占位（auth / teachers / materials / lessons / knowledge / exports / gps / quality）
+- [x] 后端 API 路由（auth / teachers / materials / lessons / knowledge / exports / gps / quality / pptagent）
 - [x] 前端 10 个模块目录占位（features / stores / pages / components / flow / charts / preview / quality / ppt-export / services）
 - [x] 后端 14 个服务层文件骨架（gps / pptagent / rag / llm / parsers / generators）
 - [x] Docker Compose 一键启动 frontend + backend + PostgreSQL/pgvector
@@ -193,7 +194,7 @@ npm audit
 - [x] 图片 / 扫描 PDF OCR 解析流水线
 - [ ] 视频转写模型在比赛环境预下载并完成真实长视频验收
 - [x] 语音输入（Web Speech API + MediaRecorder fallback；录音在 Compose 中后台转写）
-- [ ] PPTAgent 参考页分析 + 编辑 actions + self-correction
+- [x] PPTAgent PPTX 参考页结构分析 + 严格校验编辑 actions + python-pptx 安全重渲染
 - [x] 教案 python-docx 生成与下载
 - [ ] 互动内容 Jinja2 模板生成
 - [ ] 教师修改意见 → 再生成闭环
@@ -214,10 +215,10 @@ npm audit
 pytest -q
 ```
 
-结果（阶段十验证）：
+结果（阶段十一验证）：
 
 - 前端 Vitest `5 passed`，TypeScript 检查和 Vite 生产构建通过。
-- 后端测试通过：`74 passed`；仍有 `datetime.utcnow()` 弃用警告，不影响当前结果。
+- 后端测试通过：`77 passed`；仍有 `datetime.utcnow()` 弃用警告，不影响当前结果。
 - Compose 中 `postgres`、`redis`、`backend`、`worker`、`frontend` 已实际启动并通过健康检查或任务消费检查。
 - 已用无文本层 PDF 验证 Docker 内中英文 Tesseract 运行链路，OCR chunk 带页码和模态信息。
 - 已在 Docker 容器内生成并上传带音轨的 MP4，FFprobe/FFmpeg 链路通过；默认关闭 Whisper 时保留视频并返回明确 warning，不生成虚假字幕。
@@ -228,7 +229,7 @@ pytest -q
 
 ## 已知边界
 
-- GPS、动态大纲、规则质检和 PPTX 导出已有可运行实现；PPTAgent 的参考页编辑范式和模型增强仍需补齐。
+- GPS、动态大纲、规则质检和 PPTX 导出已有可运行实现；PPTAgent 当前支持 PPTX 结构统计、章节顺序/要点编辑、三种固定主题和导出版本记录，模型增强与复杂自由排版仍是后续增强。
 - `/knowledge/search` 在 PostgreSQL 上已使用 chunks 的 pgvector 余弦检索；本地 SQLite 或未安装 BGE 模型时使用确定性的 hash embedding/词法降级。
 - Compose 中 OCR、视频和音频解析由单并发 Celery worker 执行；进度当前通过材料列表轮询，SSE 属于后续增强。本地开发默认同步执行以保持零额外服务依赖。
 - 视频转写默认不下载模型；启用后由 Worker 使用持久化模型卷，仍需在赛前监控模型缓存和单任务耗时。

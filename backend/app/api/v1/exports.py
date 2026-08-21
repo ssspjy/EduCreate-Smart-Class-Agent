@@ -12,12 +12,18 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from sqlalchemy import func
+from sqlalchemy.orm import Session
 
 from app.core.config import get_settings, resolve_runtime_path
 from app.services.generators.pptx_generator import generate_pptx
 from app.services.generators.docx_generator import generate_docx
 from app.core.security import require_user
+from app.db import get_db
+from app.models import GeneratedArtifact, Lesson
+from app.schemas.pptagent import PptEditAction
+from app.services.pptagent.editor import apply_actions
 
 logger = logging.getLogger(__name__)
 router = APIRouter(dependencies=[Depends(require_user)])
@@ -33,6 +39,8 @@ class PptxExportRequest(BaseModel):
     subject: str = ""
     grade: str = ""
     sections: list[dict]  # OutlineSection[]
+    lesson_id: str | None = None
+    actions: list[PptEditAction] = Field(default_factory=list, max_length=30)
 
 
 class DocxExportRequest(PptxExportRequest):
@@ -47,7 +55,7 @@ def _safe_export_stem(title: str) -> str:
 
 
 @router.post("/pptx", summary="导出 PPTX 文件")
-async def export_pptx(body: PptxExportRequest) -> dict:
+async def export_pptx(body: PptxExportRequest, db: Session = Depends(get_db)) -> dict:
     """基于大纲结构生成 PPTX 文件。
 
     文件存储在 uploads/exports/ 目录，通过 GET /exports/{filename} 下载。
@@ -56,15 +64,43 @@ async def export_pptx(body: PptxExportRequest) -> dict:
         filename = f"{_safe_export_stem(body.title)}_{os.urandom(4).hex()}.pptx"
         filepath = EXPORT_DIR / filename
 
-        generate_pptx(body.dict(), str(filepath))
+        outline = body.dict(exclude={"lesson_id", "actions"})
+        if body.actions:
+            outline, _, warnings = apply_actions(outline, body.actions)
+        else:
+            warnings = []
+        artifact_id = None
+        version = None
+        if body.lesson_id:
+            if db.get(Lesson, body.lesson_id) is None:
+                raise HTTPException(status_code=404, detail="lesson_id 不存在")
+            latest = db.query(func.max(GeneratedArtifact.version)).filter(
+                GeneratedArtifact.lesson_id == body.lesson_id,
+                GeneratedArtifact.type == "pptx",
+            ).scalar()
+            version = int(latest or 0) + 1
+        generate_pptx(outline, str(filepath))
+        if body.lesson_id:
+            artifact = GeneratedArtifact(
+                lesson_id=body.lesson_id,
+                type="pptx",
+                version=version,
+                storage_path=str(filepath),
+            )
+            db.add(artifact)
+            db.commit()
+            db.refresh(artifact)
+            artifact_id = artifact.id
 
         # 返回相对路径，前端拼接 API_BASE
         url = f"/api/v1/exports/{filename}"
         logger.info("[Export] PPTX 生成成功：%s", filepath)
 
-        return {"url": url, "filename": filename}
+        return {"url": url, "filename": filename, "artifact_id": artifact_id, "version": version, "warnings": warnings}
 
     except Exception as exc:
+        if isinstance(exc, HTTPException):
+            raise
         logger.error("[Export] PPTX 生成失败：%s", exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

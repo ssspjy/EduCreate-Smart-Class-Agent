@@ -168,6 +168,14 @@ export interface Outline {
   total_duration_minutes: number;
 }
 
+export type PptEditAction =
+  | { type: "move_section"; section_id: string; to_index: number }
+  | { type: "rename_section"; section_id: string; title: string }
+  | { type: "replace_bullet"; section_id: string; bullet_index: number; text: string }
+  | { type: "append_bullet"; section_id: string; text: string }
+  | { type: "remove_bullet"; section_id: string; bullet_index: number }
+  | { type: "set_style"; style: "classic" | "modern" | "minimal" };
+
 export interface QualityReport {
   score: number;
   clarity: number;
@@ -368,10 +376,36 @@ export const apiGenerateOutline = (gpsResult: GpsClarifyResult): Promise<Outline
 
 // ── 导出 ─────────────────────────────────────────────────────────────────────
 
-export const apiExportPPTX = (outline: Outline): Promise<{ url: string }> =>
-  apiFetch<{ url: string }>("/exports/pptx", {
+export const apiApplyPptActions = (body: {
+  outline: Outline;
+  actions: PptEditAction[];
+  lesson_id?: string;
+  instruction?: string;
+}): Promise<{ outline: Outline; applied: Record<string, unknown>[]; warnings: string[]; edit_request_id?: string | null }> =>
+  apiFetch("/pptagent/apply-actions", {
     method: "POST",
-    body: JSON.stringify(outline),
+    body: JSON.stringify(body),
+  });
+
+export const apiAnalyzePptReference = (materialId: string): Promise<{
+  material_id: string;
+  filename: string;
+  slide_count: number;
+  average_characters: number;
+  density: string;
+  recommended_style: "classic" | "modern" | "minimal";
+}> => apiFetch("/pptagent/analyze-reference", {
+  method: "POST",
+  body: JSON.stringify({ material_id: materialId }),
+});
+
+export const apiExportPPTX = (
+  outline: Outline,
+  options?: { lesson_id?: string; actions?: PptEditAction[] },
+): Promise<{ url: string; artifact_id?: string | null; version?: number | null; warnings?: string[] }> =>
+  apiFetch("/exports/pptx", {
+    method: "POST",
+    body: JSON.stringify({ ...outline, ...options }),
   });
 
 export const apiExportDOCX = (outline: Outline): Promise<{ url: string }> =>

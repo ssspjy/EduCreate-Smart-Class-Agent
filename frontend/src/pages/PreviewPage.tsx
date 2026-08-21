@@ -20,10 +20,12 @@ import {
   CheckCircleOutlined,
   DownloadOutlined,
   ExportOutlined,
+  ArrowUpOutlined,
+  ArrowDownOutlined,
 } from "@ant-design/icons";
 import { useWorkflowStore } from "../stores/workflow";
-import { apiExportDOCX, apiExportPPTX } from "../services/api";
-import type { Outline } from "../services/api";
+import { apiApplyPptActions, apiExportDOCX, apiExportPPTX } from "../services/api";
+import type { Outline, PptEditAction } from "../services/api";
 
 const { Title, Text } = Typography;
 
@@ -31,13 +33,30 @@ type ExportStage = "idle" | "exporting" | "done" | "error";
 
 export default function PreviewPage() {
   const navigate = useNavigate();
-  const { outline, setCurrentStep } = useWorkflowStore();
+  const { outline, setOutline, setCurrentStep, lessonId } = useWorkflowStore();
   const [stage, setStage] = useState<ExportStage>("idle");
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
   const [docxUrl, setDocxUrl] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const currentOutline = outline as Outline | null;
+
+  const handleEditAction = async (action: PptEditAction) => {
+    if (!currentOutline) return;
+    try {
+      const response = await apiApplyPptActions({
+        outline: currentOutline,
+        actions: [action],
+        lesson_id: lessonId || undefined,
+        instruction: "预览页章节顺序调整",
+      });
+      setOutline(response.outline);
+      response.warnings.forEach((warning) => message.warning(warning));
+      message.success("结构化编辑已应用");
+    } catch (err: unknown) {
+      message.error(`编辑失败：${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
 
   const handleExport = async () => {
     if (!currentOutline) {
@@ -47,7 +66,7 @@ export default function PreviewPage() {
     setStage("exporting");
     setErrorMsg(null);
     try {
-      const resp = await apiExportPPTX(currentOutline);
+      const resp = await apiExportPPTX(currentOutline, lessonId ? { lesson_id: lessonId } : undefined);
       setDownloadUrl(resp.url);
       setStage("done");
       message.success("PPT 导出成功，点击下载");
@@ -141,11 +160,23 @@ export default function PreviewPage() {
       >
         {currentOutline.sections.map((section, i) => (
           <div key={section.id} style={{ marginBottom: i < currentOutline.sections.length - 1 ? 16 : 0 }}>
-            <Space>
+            <Space wrap>
               <Text strong>{i + 1}. {section.title}</Text>
               <Text type="secondary" style={{ fontSize: 12 }}>
                 {section.duration_minutes} 分钟 · {section.slide_count} 页
               </Text>
+              <Button
+                size="small"
+                icon={<ArrowUpOutlined />}
+                disabled={i === 0}
+                onClick={() => void handleEditAction({ type: "move_section", section_id: section.id, to_index: i - 1 })}
+              />
+              <Button
+                size="small"
+                icon={<ArrowDownOutlined />}
+                disabled={i === currentOutline.sections.length - 1}
+                onClick={() => void handleEditAction({ type: "move_section", section_id: section.id, to_index: i + 1 })}
+              />
             </Space>
             <ul style={{ margin: "4px 0 0 20px", paddingLeft: 0 }}>
               {section.bullets.map((b, j) => (

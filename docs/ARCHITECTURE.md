@@ -505,9 +505,9 @@ PptxGenJS 不再是比赛版运行时依赖；只有在后续确认需要浏览�
 }
 ```
 
-### 5.5 PPTAgent 编排节点（目标）
+### 5.5 PPTAgent 编排节点（当前比赛版）
 
-以下是完成参考页分析和 self-correction 后的目标编排，不代表当前已经引入 LangGraph 运行时：
+当前阶段不引入 LangGraph 运行时，采用可审计的 HTTP 服务编排：
 
 ```python
 graph.add_node("ppt_analyzer", ppt_analyzer_node)        # Stage I：分析参考
@@ -517,9 +517,13 @@ graph.add_node("ppt_executor", ppt_executor_node)        # python-pptx 执行 + 
 graph.add_node("ppt_quality", ppt_quality_node)          # PPTEVAL 质检
 ```
 
-### 5.6 Self-correction 闭环
+实际入口为 `POST /api/v1/pptagent/analyze-reference`（读取已解析的 PPTX）和
+`POST /api/v1/pptagent/apply-actions`（校验并应用结构化动作）。导出接口可携带
+`lesson_id` 生成 `GeneratedArtifact` 版本记录；预览页提供章节上移/下移操作。
 
-> 这是待实现闭环。服务端只执行固定的 python-pptx 生成器，不执行 LLM 返回的代码。
+### 5.6 Self-correction 闭环（边界）
+
+> 自动 self-correction 和复杂版式误差回传仍是后续增强；当前服务端只执行固定的 python-pptx 生成器，不执行 LLM 返回的代码。
 
 ```
 for 轮次 in [1, 2]:
@@ -538,11 +542,11 @@ end
 比赛要求的迭代优化不只依赖自动 self-correction，还需要教师反馈闭环：
 
 ```
-教师在预览页提交修改意见
+教师在预览页提交结构化修改动作
         ↓
 edit_requests 记录原文、目标页、目标元素、当前 artifact 版本
         ↓
-LLM 将自然语言改写为结构化 edit action
+后端 Pydantic 校验 action（不接受代码、路径或任意主题令牌）
         ↓
 PPTAgent Editor 应用到 Lesson IR / slide JSON
         ↓
@@ -553,15 +557,16 @@ PPTEVAL 局部复检
 生成新 artifact version，教师确认或继续修改
 ```
 
-支持的首批修改意图：
+当前支持的首批修改动作：
 
 | 教师说法 | 结构化动作 | 处理范围 |
 |---|---|---|
-| "调整顺序" | `reorder_sections` / `reorder_slides` | outline + slide JSON |
-| "简化某页" | `compress_text` | 单页文本 |
-| "增加一个案例" | `insert_example` | RAG 检索 + 单页或章节 |
-| "换成更活泼的风格" | `restyle_slide` | 单页或整套主题 token |
-| "加一个互动题" | `insert_interactive` | 互动模板 + PPT 占位 |
+| 章节上移/下移 | `move_section` | outline |
+| 修改章节标题 | `rename_section` | outline |
+| 修改/追加/删除要点 | `replace_bullet` / `append_bullet` / `remove_bullet` | 单章节 |
+| 切换固定主题 | `set_style`（classic / modern / minimal） | 整套 PPT |
+
+越界动作会返回 warning 并保留可用结果；未知动作由 schema 直接拒绝。
 
 每次修改都保留版本号，教师可回退到上一版，避免一次再生成覆盖已满意内容。
 
