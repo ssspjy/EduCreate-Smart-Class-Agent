@@ -83,6 +83,7 @@
 - **PostgreSQL + pgvector**：Compose 的正式数据层；chunks 已写入 1024 维向量并支持余弦检索。BGE-M3 模型和 HNSW 索引仍作为后续优化，未安装模型时使用 hash embedding 降级
 - **文件存储**：原始资料与生成成果使用后端目录和 Docker 命名卷，减少比赛环境依赖
 - **本地开发**：允许继续使用 SQLite，保证无需 Docker 也能开发和运行测试
+- **数据库迁移**：Alembic 作为结构版本控制；启动时保留幂等兼容检查，避免旧比赛数据卷在升级期间不可用
 - **条件接入**：OCR、视频转写或生成任务出现明显长耗时后，引入 Redis + Celery，并使用 SSE 推送进度
 - **非比赛硬依赖**：MinIO、Gunicorn 多 Worker、WebSocket / WebTransport 和独立实时网关均放入后续演进，不作为当前完成度声明
 

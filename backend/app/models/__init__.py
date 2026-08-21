@@ -9,6 +9,7 @@ from app.models.entities import (
     LessonIR,
     Material,
     RagEvidence,
+    GpsSession,
 )
 
 __all__ = [
@@ -20,4 +21,5 @@ __all__ = [
     "LessonIR",
     "Material",
     "RagEvidence",
+    "GpsSession",
 ]

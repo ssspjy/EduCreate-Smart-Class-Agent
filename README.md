@@ -63,6 +63,12 @@ Docker Compose 启动 `frontend`、`backend`、`PostgreSQL + pgvector`，并为�
 docker compose up --build
 ```
 
+数据库结构由 Alembic 管理。首次部署或升级后端时可执行：
+
+```bash
+docker compose exec backend alembic -c alembic.ini upgrade head
+```
+
 启动后访问：
 
 | 端点 | 地址 |

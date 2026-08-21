@@ -59,6 +59,18 @@ class Chunk(Base):
     material = relationship("Material", back_populates="chunks")
 
 
+class GpsSession(Base):
+    """Persisted GPS clarification session state."""
+
+    __tablename__ = "gps_sessions"
+
+    id = Column(String(64), primary_key=True)
+    lesson_id = Column(String(36), ForeignKey("lessons.id"), nullable=True, index=True)
+    state = Column(JSON, nullable=False, default=dict)
+    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = Column(DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 class Lesson(Base):
     """Lesson workspace owned by a teacher."""
 

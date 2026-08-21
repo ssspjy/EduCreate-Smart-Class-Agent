@@ -14,6 +14,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session
 
 from app.schemas.gps import (
     ChatMessage,
@@ -24,14 +25,16 @@ from app.schemas.gps import (
 from app.services.gps import (
     ClarifierSession,
     build_dag,
-    clear_session,
-    create_session,
-    get_or_create_session,
-    get_session,
 )
 from app.db import get_db
 from app.rag.retriever import retrieve
 from app.core.security import require_user
+from app.services.gps.session_store import (
+    delete_session as delete_persisted_session,
+    load_or_create_session,
+    load_session,
+    save_session,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(dependencies=[Depends(require_user)])
@@ -85,7 +88,7 @@ async def clarify(body: ClarifyRequestBody, db: Session = Depends(get_db)) -> Cl
             detail="首次调用必须传入 query 字段，多轮调用可只传 messages",
         )
 
-    session = get_or_create_session(body.session_id, body.lesson_id or "")
+    session = load_or_create_session(db, body.session_id, body.lesson_id or "")
 
     # 多轮场景：重放历史消息（用于前端恢复上下文）
     # 仅当 session 历史为空时才追加（避免页面刷新后重复）
@@ -105,6 +108,7 @@ async def clarify(body: ClarifyRequestBody, db: Session = Depends(get_db)) -> Cl
             user_message=body.query,
             materials_context=materials_context or None,
         )
+        save_session(db, session)
         return ClarifyResponse(
             result=GpsClarifyResult.model_validate(result["result"]),
             missing_slots=[MissingSlot(**m) for m in result["missing_slots"]],
@@ -114,6 +118,7 @@ async def clarify(body: ClarifyRequestBody, db: Session = Depends(get_db)) -> Cl
         )
 
     # 仅传 messages（重放模式，不处理新输入）
+    save_session(db, session)
     current_missing = session.get_missing_slots()
     return ClarifyResponse(
         result=GpsClarifyResult.model_validate(session.intent.to_gps_result()),
@@ -143,12 +148,12 @@ def _restore_history(session: ClarifierSession, messages: list[ChatMessage]) -> 
 # ── GET /session/{session_id}/dag — DAG 可视化数据 ──────────────────────────────
 
 @router.get("/session/{session_id}/dag", summary="获取会话 DAG 可视化数据")
-def get_session_dag(session_id: str) -> dict:
+def get_session_dag(session_id: str, db: Session = Depends(get_db)) -> dict:
     """返回前端 React Flow 格式的 DAG 数据。
 
     Response 格式与 frontend/src/flow/GpsDag.tsx DagGraph 接口对齐。
     """
-    session = get_session(session_id)
+    session = load_session(db, session_id)
     if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -165,26 +170,27 @@ class ResetResponse(BaseModel):
 
 
 @router.post("/session/{session_id}/reset", response_model=ResetResponse, summary="重置澄清会话")
-def reset_session(session_id: str) -> ResetResponse:
+def reset_session(session_id: str, db: Session = Depends(get_db)) -> ResetResponse:
     """清空对话历史，保留 lesson_id，重新开始澄清。"""
-    session = get_session(session_id)
+    session = load_session(db, session_id)
     if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"会话 {session_id} 不存在",
         )
     lesson_id = session.lesson_id
-    clear_session(session_id)
-    new_session = create_session(lesson_id)
+    delete_persisted_session(db, session_id)
+    new_session = load_or_create_session(db, None, lesson_id)
+    save_session(db, new_session)
     return ResetResponse(status="reset", session_id=new_session.session_id)
 
 
 # ── DELETE /session/{session_id} — 删除会话 ──────────────────────────────────
 
 @router.delete("/session/{session_id}", response_model=ResetResponse, summary="删除澄清会话")
-def delete_session(session_id: str) -> ResetResponse:
+def delete_session(session_id: str, db: Session = Depends(get_db)) -> ResetResponse:
     """永久删除会话。"""
-    ok = clear_session(session_id)
+    ok = delete_persisted_session(db, session_id)
     if not ok:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -196,9 +202,9 @@ def delete_session(session_id: str) -> ResetResponse:
 # ── GET /session/{session_id} — 获取会话状态 ───────────────────────────────────
 
 @router.get("/session/{session_id}", summary="获取会话当前状态")
-def get_session_status(session_id: str) -> dict:
+def get_session_status(session_id: str, db: Session = Depends(get_db)) -> dict:
     """返回会话的意图摘要、缺失槽位、完成度（不含 DAG 数据）。"""
-    session = get_session(session_id)
+    session = load_session(db, session_id)
     if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

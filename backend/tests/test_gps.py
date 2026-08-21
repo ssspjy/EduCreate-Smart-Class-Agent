@@ -15,7 +15,11 @@ from app.services.gps.clarifier import (
     get_or_create_session,
     FIXED_SLOTS,
     SLOT_HINTS,
+    _sessions,
 )
+from app.services.gps.reasoner import ExtractedIntent
+from app.services.gps.session_store import load_session, load_or_create_session, save_session
+from app.db import SessionLocal
 from app.services.gps.dag_builder import (
     build_dag,
     build_dag_from_slots,
@@ -167,6 +171,47 @@ class TestGlobalSessionManagement:
         create_session("global-test-4")
         clear_session("global-test-4")
         assert get_session("global-test-4") is None
+
+
+class TestPersistedGpsSession:
+    """GPS API state survives the in-memory session registry being cleared."""
+
+    def test_clarify_session_survives_memory_reset(self, client) -> None:
+        extracted = ExtractedIntent(
+            subject="物理",
+            grade="初中",
+            topic="浮力",
+            objectives=["理解浮力"],
+            key_points=["阿基米德原理"],
+        )
+        with patch("app.services.gps.clarifier.extract_intent", new_callable=AsyncMock) as mock_extract:
+            mock_extract.return_value = extracted
+            response = client.post(
+                "/api/v1/gps/clarify",
+                json={"query": "生成一节浮力课"},
+            )
+
+        assert response.status_code == 200
+        session_id = response.json()["session_id"]
+        _sessions.clear()
+
+        restored = client.get(f"/api/v1/gps/session/{session_id}")
+        assert restored.status_code == 200
+        assert restored.json()["intent"]["topic"] == "浮力"
+        assert restored.json()["dialogue_count"] == 1
+
+    def test_session_store_round_trip(self) -> None:
+        with SessionLocal() as db:
+            session = load_or_create_session(db, "round-trip")
+            session.update(GpsClarifyResult(
+                subject="化学", grade="高中", topic="酸碱",
+                objectives=["理解 pH"], key_points=["指示剂"],
+                difficulty="medium", style="interactive", confidence=1.0,
+            ))
+            save_session(db, session)
+            restored = load_session(db, "round-trip")
+            assert restored is not None
+            assert restored.intent.topic == "酸碱"
 
 
 # ── DAG Builder 测试 ──────────────────────────────────────────────────────────
