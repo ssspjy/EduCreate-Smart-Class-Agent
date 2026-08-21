@@ -7,7 +7,7 @@ SQLAlchemy URL boundary that can later point at PostgreSQL.
 from collections.abc import Generator
 from pathlib import Path
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session, declarative_base, sessionmaker
 
 from app.core.config import get_settings, resolve_runtime_path
@@ -59,3 +59,27 @@ def init_db() -> None:
     from app import models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
+    _ensure_embedding_column()
+
+
+def _ensure_embedding_column() -> None:
+    """Bootstrap the embedding column for pre-vector databases.
+
+    Alembic will own schema evolution in the next phase. This idempotent
+    bootstrap keeps an existing competition volume usable during rollout.
+    """
+    inspector = inspect(engine)
+    if "chunks" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("chunks")}
+    with engine.begin() as connection:
+        if engine.dialect.name == "postgresql":
+            connection.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+            if "embedding" not in columns:
+                connection.execute(text("ALTER TABLE chunks ADD COLUMN IF NOT EXISTS embedding vector(1024)"))
+            connection.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_chunks_embedding_hnsw "
+                "ON chunks USING hnsw (embedding vector_cosine_ops)"
+            ))
+        elif "embedding" not in columns:
+            connection.execute(text("ALTER TABLE chunks ADD COLUMN embedding VECTOR(1024)"))

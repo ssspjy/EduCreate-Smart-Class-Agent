@@ -123,7 +123,7 @@ npm audit
 | `teachers` | `/api/v1/teachers` | 教师管理 |
 | `materials` | `/api/v1/materials` | 参考资料上传 / 解析 |
 | `lessons` | `/api/v1/lessons` | 教案 / 课件生成 |
-| `knowledge` | `/api/v1/knowledge` | 已解析材料的本地词法检索；BGE-M3/pgvector 为后续升级 |
+| `knowledge` | `/api/v1/knowledge` | PostgreSQL 使用 pgvector 余弦检索；SQLite/无模型环境自动词法降级 |
 | `exports` | `/api/v1/exports` | 使用 `python-pptx` 生成和下载 `.pptx` |
 | `gps` | `/api/v1/gps` | 教学意图澄清 |
 | `quality` | `/api/v1/quality` | 大纲质量检测 |
@@ -159,8 +159,8 @@ npm audit
 - [x] DeepSeek / OpenAI-compatible LLM provider 抽象、重试与结构化输出校验
 
 ⏳ 进行中（服务层骨架就绪，业务逻辑待填）
-- [ ] 为 chunks 增加向量字段、索引和检索查询（Compose 已提供 pgvector 数据库）
-- [ ] BGE-M3 嵌入服务接入
+- [x] 为 chunks 增加 1024 维向量字段、写入和 pgvector 检索查询（Compose 已提供 pgvector 数据库）
+- [ ] BGE-M3 模型服务接入（当前支持 `EMBEDDING_PROVIDER=bge`，未安装模型时自动 hash 降级）
 - [ ] OCR / 视频转写解析流水线（图片 / 视频）
 - [ ] 语音输入（Web Speech API + MediaRecorder fallback）
 - [ ] PPTAgent 参考页分析 + 编辑 actions + self-correction
@@ -194,7 +194,7 @@ pytest -q
 ## 已知边界
 
 - GPS、动态大纲、规则质检和 PPTX 导出已有可运行实现；PPTAgent 的参考页编辑范式和模型增强仍需补齐。
-- `/knowledge/search` 已接通基于 chunks 的本地词法检索，并为后续 BGE-M3/pgvector 保留接口；当前不是语义向量检索。
+- `/knowledge/search` 在 PostgreSQL 上已使用 chunks 的 pgvector 余弦检索；本地 SQLite 或未安装 BGE 模型时使用确定性的 hash embedding/词法降级。
 - 本地直接运行默认使用 SQLite，数据位于 `backend/data/` 与 `backend/uploads/`；Docker 使用 PostgreSQL 和命名卷，测试数据位于 `backend/tests/_tmp/`。
 - 比赛版正式 PPT 导出路径是后端 `python-pptx`；PptxGenJS 仅保留为未来浏览器内编辑的候选方案。
 - Redis / Celery、MinIO 和 WebTransport 暂不进入比赛版运行时，除非对应业务能力真正接入。

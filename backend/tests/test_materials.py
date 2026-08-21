@@ -6,6 +6,9 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from docx import Document
 
+from app.db import SessionLocal
+from app.models import Chunk
+
 
 def test_upload_image_is_persisted_without_fake_chunks(client: TestClient) -> None:
     response = client.post(
@@ -48,6 +51,12 @@ def test_upload_docx_extracts_text_chunks(client: TestClient) -> None:
     payload = response.json()
     assert payload["status"] == "parsed"
     assert payload["chunk_count"] >= 1
+
+    with SessionLocal() as db:
+        stored_chunk = db.query(Chunk).filter(Chunk.material_id == payload["file_id"]).first()
+        assert stored_chunk is not None
+        assert stored_chunk.embedding is not None
+        assert len(stored_chunk.embedding) == 1024
 
     chunks = client.get(f"/api/v1/materials/{payload['file_id']}/chunks")
     assert chunks.status_code == 200

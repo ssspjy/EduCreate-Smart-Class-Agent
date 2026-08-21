@@ -50,6 +50,9 @@ services:
       - JWT_SECRET=${JWT_SECRET:-change-this-secret-in-production}
       - DEMO_USERNAME=${DEMO_USERNAME:-demo-teacher}
       - DEMO_PASSWORD=${DEMO_PASSWORD:-change-me}
+      - EMBEDDING_PROVIDER=${EMBEDDING_PROVIDER:-hash}
+      - EMBEDDING_DIMENSION=${EMBEDDING_DIMENSION:-1024}
+      - BGE_MODEL_NAME=${BGE_MODEL_NAME:-BAAI/bge-m3}
     volumes:
       - backend_uploads:/app/uploads
     depends_on:

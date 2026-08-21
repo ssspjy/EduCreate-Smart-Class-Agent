@@ -12,7 +12,8 @@ from sqlalchemy.orm import Session, selectinload
 from app.core.config import get_settings, resolve_runtime_path
 from app.models import Chunk, Material
 from app.schemas import ChunkResponse, MaterialDetailResponse, MaterialResponse
-from app.services.parsers.parser import parse
+from app.services.parsers.parser import ParsedChunk, parse
+from app.services.rag.embedder import embed_texts
 
 # Formats currently accepted by the API. The web client advertises the
 # text-extractable set (pdf/docx/pptx/md/txt); image/video and legacy Office
@@ -116,10 +117,19 @@ async def create_material_from_upload(db: Session, file: UploadFile) -> Material
 
     try:
         parse_result = await parse(str(storage_path), extension)
+        parsed_contents: list[str] = []
+        parsed_items: list[tuple[int, ParsedChunk]] = []
         for chunk_index, parsed_chunk in enumerate(parse_result.chunks):
             content = parsed_chunk.content.strip()
             if not content:
                 continue
+            parsed_contents.append(content)
+            parsed_items.append((chunk_index, parsed_chunk))
+
+        embeddings = embed_texts(parsed_contents)
+        for (chunk_index, parsed_chunk), content, embedding in zip(
+            parsed_items, parsed_contents, embeddings, strict=True
+        ):
             db.add(
                 Chunk(
                     material_id=material.id,
@@ -130,6 +140,7 @@ async def create_material_from_upload(db: Session, file: UploadFile) -> Material
                     media_ref=parsed_chunk.media_ref,
                     modality=parsed_chunk.modality,
                     token_count=len(content.split()),
+                    embedding=embedding,
                 )
             )
 

@@ -80,7 +80,7 @@
 
 - **前端**：Nginx 托管 React 构建产物，并把 `/api/*` 反向代理到后端
 - **后端**：比赛版使用 Uvicorn 部署 FastAPI；材料解析、GPS、大纲、质检和导出均从统一 REST API 提供
-- **PostgreSQL + pgvector**：Compose 的正式数据层；扩展在数据库初始化时启用。当前 `/knowledge/search` 已有 chunks 词法检索，向量字段、HNSW 索引和 BGE-M3 语义检索仍是后续升级
+- **PostgreSQL + pgvector**：Compose 的正式数据层；chunks 已写入 1024 维向量并支持余弦检索。BGE-M3 模型和 HNSW 索引仍作为后续优化，未安装模型时使用 hash embedding 降级
 - **文件存储**：原始资料与生成成果使用后端目录和 Docker 命名卷，减少比赛环境依赖
 - **本地开发**：允许继续使用 SQLite，保证无需 Docker 也能开发和运行测试
 - **条件接入**：OCR、视频转写或生成任务出现明显长耗时后，引入 Redis + Celery，并使用 SSE 推送进度
@@ -207,7 +207,7 @@ LLM 不直接散落在业务代码中调用，统一经过 `services/llm/provide
 
 上传不是只保存文件，而是进入统一解析任务：
 
-> 当前实现：本地开发使用 SQLite，Compose 使用 PostgreSQL + pgvector；两种模式均通过后端文件目录保存上传内容。PDF / DOCX / PPTX 已同步解析并写入 chunks；图片 / 视频仅保存文件并返回明确 warning。BGE-M3 向量化、OCR、视频转写和异步任务仍待接入。
+> 当前实现：本地开发使用 SQLite，Compose 使用 PostgreSQL + pgvector；两种模式均通过后端文件目录保存上传内容。PDF / DOCX / PPTX / Markdown / TXT 会解析并写入 chunks 与 1024 维 embedding；PostgreSQL 走 pgvector 余弦检索，SQLite 走词法降级。BGE-M3、OCR、视频转写和异步任务仍待接入。
 
 ```
 POST /api/v1/materials/upload

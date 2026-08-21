@@ -7,8 +7,15 @@ vectors.
 """
 
 import hashlib
+import logging
 import math
 import re
+from functools import lru_cache
+
+from app.core.config import get_settings
+
+logger = logging.getLogger(__name__)
+VECTOR_DIMENSION = 1024
 
 
 def _terms(text: str) -> list[str]:
@@ -16,13 +23,23 @@ def _terms(text: str) -> list[str]:
 
 
 def embed_texts(texts: list[str]) -> list[list[float]]:
-    """Return deterministic hashed vectors for local development.
+    """Return BGE-M3 vectors when enabled, otherwise deterministic hash vectors.
 
-    This is not a semantic model; it is a stable fallback used until BGE-M3
-    is installed. Vectors are L2-normalized and therefore safe for cosine
-    similarity tests and future pgvector migration.
+    ``EMBEDDING_PROVIDER=bge`` is intentionally optional because the model is
+    large. If FlagEmbedding is unavailable, the application logs one warning
+    and falls back to a stable local vector instead of failing uploads.
     """
-    dimension = 256
+    if not texts:
+        return []
+    settings = get_settings()
+    if settings.embedding_provider.lower() == "bge":
+        bge_vectors = _embed_with_bge(texts)
+        if bge_vectors is not None:
+            return bge_vectors
+
+    dimension = VECTOR_DIMENSION
+    if settings.embedding_dimension != VECTOR_DIMENSION:
+        logger.warning("EMBEDDING_DIMENSION=%s is unsupported by the current schema; using %s", settings.embedding_dimension, VECTOR_DIMENSION)
     vectors: list[list[float]] = []
     for text in texts:
         vector = [0.0] * dimension
@@ -34,3 +51,32 @@ def embed_texts(texts: list[str]) -> list[list[float]]:
         norm = math.sqrt(sum(value * value for value in vector))
         vectors.append([value / norm for value in vector] if norm else vector)
     return vectors
+
+
+@lru_cache(maxsize=1)
+def _get_bge_model():
+    from FlagEmbedding import BGEM3FlagModel
+
+    settings = get_settings()
+    return BGEM3FlagModel(settings.bge_model_name, use_fp16=True)
+
+
+def _embed_with_bge(texts: list[str]) -> list[list[float]] | None:
+    try:
+        model = _get_bge_model()
+        encoded = model.encode(texts, batch_size=32, max_length=8192)
+        dense_vectors = encoded["dense_vecs"]
+        dimension = VECTOR_DIMENSION
+        result: list[list[float]] = []
+        for vector in dense_vectors:
+            values = [float(value) for value in vector[:dimension]]
+            if len(values) < dimension:
+                values.extend([0.0] * (dimension - len(values)))
+            norm = math.sqrt(sum(value * value for value in values))
+            result.append([value / norm for value in values] if norm else values)
+        return result
+    except ImportError:
+        logger.warning("BGE-M3 provider requested but FlagEmbedding is not installed; using hash embeddings")
+    except Exception:
+        logger.exception("BGE-M3 embedding failed; using hash embeddings")
+    return None

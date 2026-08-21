@@ -5,6 +5,7 @@ from uuid import uuid4
 
 from sqlalchemy import Column, DateTime, ForeignKey, Integer, JSON, String, Text
 from sqlalchemy.orm import relationship
+from pgvector.sqlalchemy import Vector
 
 from app.db.session import Base
 
@@ -52,6 +53,7 @@ class Chunk(Base):
     media_ref = Column(String(1024), nullable=True)
     modality = Column(String(32), nullable=False, default="text")
     token_count = Column(Integer, nullable=False, default=0)
+    embedding = Column(Vector(1024), nullable=True)
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
     material = relationship("Material", back_populates="chunks")

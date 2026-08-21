@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 480
     demo_username: str = "demo-teacher"
     demo_password: str = "change-me"
+    embedding_provider: str = "hash"
+    embedding_dimension: int = 1024
+    bge_model_name: str = "BAAI/bge-m3"
 
     model_config = SettingsConfigDict(
         env_file=".env",
