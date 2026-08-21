@@ -26,6 +26,15 @@ def test_knowledge_search_ok(client: TestClient) -> None:
     assert isinstance(response.json(), list)
 
 
+def test_auth_login_issues_signed_token(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/auth/login",
+        data={"username": "demo-teacher", "password": "change-me"},
+    )
+    assert response.status_code == 200
+    assert response.json()["token_type"] == "bearer"
+
+
 def test_openapi_docs_ok(client: TestClient) -> None:
     """确保所有路由注册成功（无路由加载错误）。"""
     response = client.get("/openapi.json")

@@ -16,7 +16,7 @@ import type {
   GpsClarifyResult,
   MissingSlot,
 } from "../services/api";
-import { apiClarify, apiClarifyWithHistory, apiGetSessionDag } from "../services/api";
+import { apiClarify, apiClarifyWithHistory, apiCreateLesson, apiGetSessionDag } from "../services/api";
 import { useWorkflowStore } from "../stores/workflow";
 
 const { Text, Title } = Typography;
@@ -85,6 +85,7 @@ export default function ClarifyPage() {
     setGpsResult,
     setCurrentStep,
     lessonId,
+    setLessonId,
     materials,
   } = useWorkflowStore();
 
@@ -139,13 +140,20 @@ export default function ClarifyPage() {
     scrollToBottom();
 
     try {
+      let currentLessonId = lessonId;
+      if (!currentLessonId) {
+        const lesson = await apiCreateLesson({ title: trimmed.slice(0, 255) || "未命名课程" });
+        currentLessonId = lesson.id;
+        setLessonId(currentLessonId);
+      }
+
       let resp: ClarifyResponse;
       if (messages.length === 0) {
         // 首次：传 query + 空 messages
         resp = await apiClarify(
           trimmed,
           materialIds,
-          lessonId ?? undefined,
+          currentLessonId ?? undefined,
           gpsSessionId ?? undefined,
           undefined,
         );
@@ -154,7 +162,7 @@ export default function ClarifyPage() {
         resp = await apiClarifyWithHistory(
           newMessages,
           materialIds,
-          lessonId ?? undefined,
+          currentLessonId ?? undefined,
           gpsSessionId ?? undefined,
         );
       }

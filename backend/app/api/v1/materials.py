@@ -4,20 +4,21 @@
 支持 PDF / Word / PPT / 图片 / 视频。
 """
 
-from fastapi import APIRouter, UploadFile, File
-from fastapi import Depends
+from fastapi import APIRouter, UploadFile, File, Depends, status
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.core.security import require_user
 from app.schemas import ChunkResponse, MaterialDetailResponse, MaterialResponse
 from app.services.material_service import (
     create_material_from_upload,
+    delete_material,
     get_material_detail,
     list_material_chunks,
     list_materials,
 )
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_user)])
 
 
 @router.post("/upload", response_model=MaterialResponse, summary="上传参考资料")
@@ -51,3 +52,12 @@ async def get_uploaded_material_chunks(
 ) -> list[ChunkResponse]:
     """Return parsed chunks for a material."""
     return list_material_chunks(db, material_id)
+
+
+@router.delete("/{material_id}", status_code=status.HTTP_204_NO_CONTENT, summary="删除参考资料")
+async def delete_uploaded_material(
+    material_id: str,
+    db: Session = Depends(get_db),
+) -> None:
+    """Delete the material record and its managed file contents."""
+    delete_material(db, material_id)

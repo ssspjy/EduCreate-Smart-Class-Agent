@@ -12,9 +12,10 @@
 
 这两篇论文定义了项目的**核心算法骨架**，其它技术栈围绕它们展开。
 
-**工程化说明**：架构在保留两篇论文核心范式（DAG 主动追问 + 编辑式 PPT 生成）的基础上做了工程取舍——
+**工程化说明**：这是比赛级纯 Web 应用，架构以“核心闭环真实可用、现场部署稳定、依赖最少化”为决策顺序。在保留两篇论文核心范式（DAG 主动追问 + 编辑式 PPT 生成）的基础上做如下取舍：
 - GPS：保留**追问闭环 + DAG 可视化**作为展示点，去掉强化学习训练链路（比赛不要求训模型）
-- PPTAgent：用**PptxGenJS 浏览器侧直出**替代原论文的 PPTX XML 直接操作，避免双向保真工程风险（详见 §5.3）
+- PPTAgent：比赛版用后端 **python-pptx** 从受校验的结构化大纲生成 PPTX，PptxGenJS 仅作为后续浏览器内编辑候选（详见 §5.3）
+- 部署：只把已被业务真实使用的服务纳入比赛运行时；PostgreSQL + pgvector 是 Compose 数据层，Redis / Celery 在耗时任务异步化时接入，MinIO 与独立实时网关不作为比赛版硬依赖
 
 ---
 
@@ -53,46 +54,37 @@
 
 ## 2. 部署拓扑
 
-> 本项目采用 **Docker Compose** 一键部署，包含前端、后端、数据库、缓存、向量库等全部依赖。
+> 本项目采用 **Docker Compose** 一键部署当前比赛运行时：前端、后端、PostgreSQL + pgvector。上传资料和生成成果使用 Docker 持久化卷。
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                         Docker Compose                         │
-│                                                               │
-│   ┌──────────────┐         ┌──────────────────────────────┐ │
-│   │  frontend     │  HTTPS  │   backend                    │ │
-│   │  Nginx         │ ◄────►  │   FastAPI + Uvicorn + Gunicorn│ │
-│   │  :80/:443     │  REST   │   :8000                      │ │
-│   │  (静态托管)    │  + SSE  │   + Celery Worker            │ │
-│   └──────┬───────�  + WT    └──────────┬───────────────────┘ │
-│          │                              │                     │
-│          ▼                              ▼                     │
-│   ┌─────────────────────────────────────────────────────────┐ │
-│   │              HTTP/3 / QUIC 实时网关                     │ │
-│   │        (WebTransport 主通道 + WS / SSE 降级)            │ │
-│   └─────────────────────────────────────────────────────────┘ │
-│                              │                                │
-│              ┌───────────────┼────────────────┐              │
-│              ▼               ▼                ▼              │
-│   ┌────────────────┐  ┌──────────┐  ┌───────────────┐     │
-│   │  PostgreSQL    │  │  Redis    │  │  MinIO         │     │
-│   │  + pgvector    │  │  缓存/队列│  │  对象存储       │     │
-│   │  + HNSW 索引   │  │  :6379    │  │  :9000/:9001   │     │
-│   │  + 全文检索     │  │           │  │  资料/帧/成果   │     │
-│   │  :5432         │  │           │  │                │     │
-│   └────────────────┘  └──────────┘  └───────────────┘     │
-└──────────────────────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────┐
+│                    Docker Compose                          │
+│                                                           │
+│  ┌────────────────┐   REST    ┌────────────────────────┐  │
+│  │ frontend       │ ◄────────► │ backend                │  │
+│  │ React + Nginx  │            │ FastAPI + Uvicorn      │  │
+│  │ :5173 → :80    │            │ :8000                  │  │
+│  └────────────────┘            └───────────┬────────────┘  │
+│                                           │ SQLAlchemy     │
+│                                ┌──────────▼─────────────┐  │
+│                                │ PostgreSQL 16          │  │
+│                                │ + pgvector             │  │
+│                                │ :5432                  │  │
+│                                └────────────────────────┘  │
+│                                                           │
+│  uploads / exports：Docker 命名卷持久化                    │
+└───────────────────────────────────────────────────────────┘
 ```
 
 **说明**：
 
-- **前端**：Nginx 托管静态页面（React 构建产物），同时做反向代理负载均衡
-- **后端**：Gunicorn + Uvicorn 部署 FastAPI 异步应用，支持高并发；Celery Worker 处理 OCR / 视频转写 / 生成 / 渲染等异步任务
-- **PostgreSQL + pgvector**：存储教师/课程/素材等关系数据，启用 pgvector 扩展 + HNSW 索引做向量检索，启用中文全文检索做关键词召回
-- **Redis**：缓存对话状态、任务进度、对话历史，支持 Celery 异步任务队列
-- **MinIO**：对象存储，保存原始资料、页面图像、视频帧、生成成果和导出文件
-- **实时网关**：HTTP/3 + WebTransport 主通道承载 AI 流式回复与实时协作事件，向下兼容 WebSocket / SSE
-- **通信**：REST API + WebTransport 主通道 + WebSocket 兼容 + SSE 进度推送
+- **前端**：Nginx 托管 React 构建产物，并把 `/api/*` 反向代理到后端
+- **后端**：比赛版使用 Uvicorn 部署 FastAPI；材料解析、GPS、大纲、质检和导出均从统一 REST API 提供
+- **PostgreSQL + pgvector**：Compose 的正式数据层；扩展在数据库初始化时启用。当前 `/knowledge/search` 已有 chunks 词法检索，向量字段、HNSW 索引和 BGE-M3 语义检索仍是后续升级
+- **文件存储**：原始资料与生成成果使用后端目录和 Docker 命名卷，减少比赛环境依赖
+- **本地开发**：允许继续使用 SQLite，保证无需 Docker 也能开发和运行测试
+- **条件接入**：OCR、视频转写或生成任务出现明显长耗时后，引入 Redis + Celery，并使用 SSE 推送进度
+- **非比赛硬依赖**：MinIO、Gunicorn 多 Worker、WebSocket / WebTransport 和独立实时网关均放入后续演进，不作为当前完成度声明
 
 ---
 
@@ -107,13 +99,13 @@
 | `charts/` | DAG 可视化、质检雷达图 | ECharts |
 | `flow/` | 算法关系图、流程结构展示 | React Flow |
 | `features/` | 业务功能模块 | 业务组件 |
-| `features/voice-input/` | 教师语音输入、录音状态、转写结果确认 | Web Speech API + MediaRecorder fallback |
-| `services/` | API / SSE 进度推送 | Axios + TanStack Query |
+| `features/voice-input/` | 教师语音输入、录音状态、转写结果确认（待实现） | Web Speech API + MediaRecorder fallback |
+| `services/` | API 调用；SSE 进度推送待异步任务接入 | Fetch + TanStack Query |
 | `stores/` | 全局状态 | Zustand |
 | `state/` | 业务流程状态机 | **XState**（澄清 → 解析 → 蓝图 → 生成 → 质检 → 修改 → 导出） |
 | `preview/` | PDF 预览 | PDF.js |
 | `quality/` | 本地预检：布局、碰撞、文字密度 | Web Worker |
-| `ppt-export/` | PptxGenJS 浏览器侧生成 .pptx | PptxGenJS |
+| `ppt-export/` | 调用后端导出接口并下载 `.pptx` | Fetch + 后端 python-pptx |
 
 **多模态输入界面落地方式**：
 
@@ -183,17 +175,17 @@ LLM 不直接散落在业务代码中调用，统一经过 `services/llm/provide
 
 ### 3.3 PPT 生成策略
 
-> **工程风险提示**：PPTX ↔ HTML 双向保真是本项目最大的技术风险。文档采用 PptxGenJS 浏览器侧直出策略，避免来回转换：
+> **比赛版正式路径**：PPTX ↔ HTML 双向保真是高风险工程，因此不做双向转换，也不把生成能力绑定到浏览器运行环境：
 >
-> - **生成路径**：PPT 结构数据 → PptxGenJS → .pptx 文件（浏览器侧，无 Node 服务）
+> - **生成路径**：GPS / PPTAgent 结构化大纲 → Pydantic 校验 → 后端 python-pptx → `.pptx`
 > - **保真边界**：字体依赖系统字体库；动画/母版支持有限；如有复杂版式需求降级为静态图片占位
-> - **兜底方案**：若 PPT 生成失败，自动降级为"网页幻灯片预览 + Markdown 讲稿"导出，保证总有产出
-> - **编辑路径**：生成后允许教师在浏览器内直接修改文字/图片，保存后重新导出
+> - **兜底方案**：生成失败时保留网页大纲预览和结构数据，允许教师修正后重试
+> - **编辑路径**：比赛版先编辑结构化大纲并重新导出；浏览器内自由排版属于后续增强
 > - **PDF 渲染**：需要将 PPT/DOCX 转换为 PDF 预览时，使用 LibreOffice Headless 转换
 
 ### 3.4 模块依赖与初始化顺序
 
-> 占位小节，避免章节跳号。说明前后端模块的启动依赖：MinIO → PostgreSQL → Redis → 后端 FastAPI → Celery Worker → 前端 Nginx。在 Docker Compose 中通过 `depends_on` + healthcheck 保证启动顺序。
+比赛版启动依赖为 PostgreSQL/pgvector → FastAPI → Nginx。Docker Compose 使用数据库和后端 healthcheck 保证顺序。本地开发使用 SQLite 时，后端可独立启动。
 
 ---
 
@@ -215,24 +207,24 @@ LLM 不直接散落在业务代码中调用，统一经过 `services/llm/provide
 
 上传不是只保存文件，而是进入统一解析任务：
 
-> 当前骨架实现：使用 SQLite + 本地 `uploads/` 同步完成文件落盘和 PDF / DOCX / PPTX 文本解析；图片 / 视频仅保存文件并返回明确 warning。运行时相对路径锚定在 `backend/`，测试使用 `backend/tests/_tmp/` 隔离数据。目标架构再接入 PostgreSQL / MinIO / Celery / BGE-M3 / pgvector。
+> 当前实现：本地开发使用 SQLite，Compose 使用 PostgreSQL + pgvector；两种模式均通过后端文件目录保存上传内容。PDF / DOCX / PPTX 已同步解析并写入 chunks；图片 / 视频仅保存文件并返回明确 warning。BGE-M3 向量化、OCR、视频转写和异步任务仍待接入。
 
 ```
 POST /api/v1/materials/upload
         ↓
 materials.status = uploaded
         ↓
-Celery parse_material_job(material_id)
+同步 parser（当前）/ Celery parse_material_job（长任务接入后）
         ↓
 parser dispatch by mime
         ↓
-chunks + metadata + storage_path 写入 PostgreSQL / MinIO
+chunks + metadata + storage_path 写入数据库 / 持久化文件卷
         ↓
 BGE-M3 embedding + pgvector upsert
         ↓
 materials.status = parsed / failed
         ↓
-SSE 推送解析进度给前端
+返回解析结果（当前）/ SSE 推送进度（长任务接入后）
 ```
 
 每个 parser 至少返回统一结构：
@@ -246,7 +238,7 @@ SSE 推送解析进度给前端
       "content": "片段文本或字幕",
       "page_ref": 3,
       "bbox": [100, 120, 380, 210],
-      "media_ref": "minio://materials/xxx/page-3.png",
+      "media_ref": "uploads/<material-id>/page-3.png",
       "modality": "text"
     }
   ],
@@ -424,22 +416,23 @@ PPTAgent Stage I：分析参考 PPT 库（slide cluster + schema）
 PPTAgent Stage II：
   1. Outline 生成（每张页：目的 + 参考页 + 内容来源）
   2. Slide Generation（循环）：LLM 生成结构化编辑指令（JSON）
-  3. 浏览器侧 PptxGenJS 执行指令 + self-correction（最多 2 轮）
+  3. 后端 python-pptx 执行受校验的结构化生成指令
         ↓
 PPTEVAL 质检（Content / Design / Coherence）
         ↓
 合格 → 导出 .pptx / .docx
 ```
 
-### 5.3 核心范式：浏览器侧 PptxGenJS
+### 5.3 核心范式：服务端 python-pptx
 
-**比赛版不走 PPTX ↔ HTML 双向转换**，直接用 PptxGenJS 在浏览器侧根据 LLM 输出的 JSON 结构化指令生成 .pptx 文件。
+**比赛版不走 PPTX ↔ HTML 双向转换**。前端负责预览和编辑结构化大纲，后端用 python-pptx 根据经过 Pydantic 校验的数据生成 `.pptx` 文件，再通过受控下载接口交付。
 
 理由：
 - PPTX XML 平均 1006 行/页，LLM 难以稳定操作
 - HTML ↔ PPTX 双向保真实现成本高，比赛时间不允许
-- PptxGenJS API 简洁（addSlide / addText / addImage），LLM 输出结构化 JSON 即可执行
-- 避免任何服务端代码执行风险
+- 服务端生成结果不受浏览器、下载权限和前端运行状态影响，现场演示更稳定
+- python-pptx 已进入后端依赖并完成真实文件生成和下载闭环
+- LLM 只产出结构化内容，不产出或执行 Python 代码，避免服务端代码执行风险
 
 **LLM 输出格式（简化版）**：
 
@@ -466,11 +459,13 @@ PPTEVAL 质检（Content / Design / Coherence）
 | 场景 | 支持情况 | 兜底方案 |
 |---|---|---|
 | 文字、标题、要点 | 完整支持 | — |
-| 基础图形（矩形、圆形） | 支持 | — |
-| 动画、母版、母版动画 | 有限支持 | 降级为静态占位 |
+| 基础图形、图片 | 可扩展支持 | 使用预设布局和受控媒体路径 |
+| 动画、复杂母版 | 有限支持 | 降级为静态页面或图片占位 |
 | 字体依赖 | 依赖系统字体 | 预设 3 种安全字体兜底 |
 | 复杂排版（如参考 PPT） | 部分支持 | 近似布局 + 图片占位符 |
-| 生成失败 | — | 自动降级为"网页幻灯片 + Markdown 讲稿" |
+| 生成失败 | — | 保留网页大纲和结构数据，修改后重试 |
+
+PptxGenJS 不再是比赛版运行时依赖；只有在后续确认需要浏览器内自由排版时，才作为独立增强方案评估。
 
 ### 5.4 PPTAgent 与 Lesson IR 的接口
 
@@ -499,24 +494,26 @@ PPTEVAL 质检（Content / Design / Coherence）
 }
 ```
 
-### 5.5 PPTAgent LangGraph 节点
+### 5.5 PPTAgent 编排节点（目标）
+
+以下是完成参考页分析和 self-correction 后的目标编排，不代表当前已经引入 LangGraph 运行时：
 
 ```python
 graph.add_node("ppt_analyzer", ppt_analyzer_node)        # Stage I：分析参考
 graph.add_node("ppt_outliner", ppt_outliner_node)        # Outline 生成
 graph.add_node("ppt_slide_gen", ppt_slide_gen_node)       # 循环生成每张
-graph.add_node("ppt_executor", ppt_executor_node)        # PptxGenJS 执行 + self-correction
+graph.add_node("ppt_executor", ppt_executor_node)        # python-pptx 执行 + self-correction
 graph.add_node("ppt_quality", ppt_quality_node)          # PPTEVAL 质检
 ```
 
 ### 5.6 Self-correction 闭环
 
-> 在浏览器侧执行，无服务端代码执行风险。
+> 这是待实现闭环。服务端只执行固定的 python-pptx 生成器，不执行 LLM 返回的代码。
 
 ```
 for 轮次 in [1, 2]:
     1. LLM 生成结构化 JSON（slides + metadata）
-    2. PptxGenJS 浏览器侧执行 JSON
+    2. 后端校验 JSON，并交给固定的 python-pptx 生成器
     3. 捕获错误（5 类）：SYNTAX / LAYOUT / IMAGE / TEXT / OVERFLOW
     4. 错误信息回传 LLM
     5. LLM 生成修正后的 JSON
@@ -538,7 +535,7 @@ LLM 将自然语言改写为结构化 edit action
         ↓
 PPTAgent Editor 应用到 Lesson IR / slide JSON
         ↓
-PptxGenJS 重新渲染受影响页面
+python-pptx 根据更新后的结构数据重新生成成果
         ↓
 PPTEVAL 局部复检
         ↓
@@ -609,39 +606,36 @@ PPTEVAL 局部复检
 
 ### 5.9 导出方案
 
-> 支持 .pptx / .docx / .html5 / .gif / .mp4，覆盖比赛全部要求。
+比赛版先保证 `.pptx` 和 `.docx` 两个评分相关主产物；HTML5 互动内容在实现模板后接入。GIF / MP4 属于增强项，不计入当前完成能力。
 
 ### 5.9.1 导出矩阵
 
 | 产物 | 格式 | 导出方式 | 适用场景 |
 |---|---|---|---|
-| 课件 PPT | `.pptx` | 浏览器侧 PptxGenJS → 文件流下载 | 主交付物 |
-| 教案 Word | `.docx` | 服务端 python-docx 生成 → 文件下载 | 配套教学设计 |
-| 互动内容 | `.html` | 浏览器侧模板渲染 + Blob 下载 | 浏览器打开即用 |
-| | `.zip`（打包 PPT + HTML） | 服务端 zip 多个文件 | 整体交付 |
-| 动画动图 | `.gif` | 浏览器侧 canvas + gif.js 录制 | 嵌入 PPT 的静态演示 |
-| 短视频 | `.mp4` | 浏览器侧 MediaRecorder 录制动画 + WebM 转 MP4 | 用于课堂播放 |
+| 课件 PPT | `.pptx` | 后端 python-pptx → 下载接口 | **已实现，比赛主交付物** |
+| 教案 Word | `.docx` | 后端 python-docx → 下载接口 | 待实现，比赛主交付物 |
+| 互动内容 | `.html` | 模板渲染后独立下载或打包 | 待实现，至少交付一种互动类型 |
+| 整体成果 | `.zip` | 服务端打包已生成成果 | 后续增强 |
+| 动画动图 / 视频 | `.gif` / `.mp4` | 预渲染或录制 | 非比赛版硬依赖 |
 
 ### 5.9.2 关键库
 
-- **PPT**：`PptxGenJS`（浏览器侧）
+- **PPT**：`python-pptx`（服务端）
 - **Word**：`python-docx`（服务端）
 - **HTML5 互动**：自研模板引擎，无依赖
-- **GIF**：`gif.js`（浏览器侧，Web Worker）
-- **MP4**：`MediaRecorder API`（浏览器侧，录制 → 自动转码/或导出 WebM）
+- **PptxGenJS / GIF / MP4**：仅作为后续增强评估，不进入当前运行时
 
 ### 5.9.3 集成路径
 
-- **互动内容嵌入 PPT**：导出时先用 puppeteer-style 截图插件（如 `html2pptx`）把 HTML 渲染为图片，再嵌入 .pptx。降级方案：用 PptxGenJS 占位框标注"+HTML 入口"。
+- **互动内容嵌入 PPT**：比赛版优先在 PPT 中放置互动说明或入口，同时提供独立 HTML；后续再评估渲染为静态预览图。
 - **批量导出**：支持"一键导出 .zip"，含 PPT / 教案 / 所有互动 HTML / 所有 GIF。
 
 ### 5.9.4 边界与保真
 
 | 风险 | 兜底 |
 |---|---|
-| gif.js 录制超过 30s 性能下降 | 单动画最长 30s，超出提示拆分 |
-| MP4 转码兼容性差 | 同时提供 .webm，浏览器直接播放 |
 | 互动 HTML 嵌入 PPT 失真 | 降级为占位框 + 单独 HTML 文件附在 zip |
+| PPT 复杂母版 / 动画保真不足 | 使用比赛版安全模板，复杂效果降级为静态表达 |
 
 ---
 
@@ -699,39 +693,39 @@ created_at           action_json        excerpt (text)
 | 主题 | 决策 | 理由 |
 |---|---|---|
 | 前端构建 | Vite + React + TypeScript | 启动快，HMR 体验好 |
-| UI 组件库 | Ant Design + **shadcn/ui** | 完整设计语言 + 可复用高质量组件 |
+| UI 组件库 | Ant Design | 已安装并覆盖当前五步工作台 |
 | 图表可视化 | **ECharts**（质检雷达图、数据概览） | 丰富图表，支持响应式 |
 | DAG / 流程图 | **React Flow**（GPS DAG 可视化） | 专业节点图库 |
 | PDF 预览 | **PDF.js** | 浏览器内交互式 PDF 阅读器 |
 | 状态管理 | Zustand + TanStack Query + **XState** | XState 管业务流程状态机（澄清→生成→质检→修改→导出） |
 | 表单 | React Hook Form + Zod | 性能 + 类型化校验 |
 | 语音输入 | Web Speech API + MediaRecorder + faster-whisper fallback | 满足文字/语音双输入，兼容浏览器能力差异 |
-| 前端测试 | **Vitest** | 单元测试、覆盖测试 |
-| 后端框架 | **FastAPI** + Gunicorn + Uvicorn | 高性能异步，OpenAPI 自文档 |
+| 前端测试 | 待接入 Vitest | 当前先以 TypeScript 检查和生产构建作为门禁 |
+| 后端框架 | **FastAPI** + Uvicorn | 异步 API，OpenAPI 自文档；比赛版单实例依赖更少 |
 | ORM | SQLAlchemy 2.x | 支持多种数据库，async 支持 |
 | 数据库迁移 | **Alembic** | 版本化管理 schema 演进 |
 | 数据库 | **PostgreSQL** + pgvector | 关系数据 + 向量检索一体，ACID 支持 |
-| 向量索引 | pgvector HNSW + **NVIDIA GPU 加速索引** | 提升向量检索性能 |
+| 向量索引 | pgvector HNSW | 比赛数据规模足够，避免无实际收益的 GPU 索引依赖 |
 | 全文检索 | PostgreSQL 全文搜索 | 内置，无需额外服务 |
-| 缓存 / 任务队列 | **Redis** + **Celery** | 缓存对话状态 + 异步任务调度 |
+| 缓存 / 任务队列 | Redis + Celery（条件接入） | 仅在 OCR / 视频转写等任务异步化后进入比赛运行时 |
 | 部署 | **Docker Compose** + **Nginx** | 一键部署，负载均衡，静态托管 |
 | 后端测试 | **Pytest** | 单元测试 + 集成测试 |
 | Embedding | **BGE-M3**（中文 dense / sparse / multi-vector 三路召回） | 多语言，文本检索主力 |
 | 视觉检索 | **ColPali**（PDF / PPT 页面图像细粒度视觉检索） | 图像型资料的语义定位 |
 | 重排 | **bge-reranker-v2-m3** | 检索后重排序，提升相关性 |
 | 检索策略 | 混合全双工搜索（全文 + 向量 + rerank） | 双层答案匹配，兼顾精确与语义 |
-| LLM 框架 | **LangChain** + provider 抽象层 | 构建复杂 Agent、工作流、工具调用 |
+| LLM 框架 | 自有 provider 抽象层 | 已实现 DeepSeek / OpenAI-compatible 调用、重试和结构化输出；暂不引入未使用框架 |
 | LLM 调用 | DeepSeek 主模型 + OpenAI-compatible fallback + **Structured Output** | 结构化输出，确保 JSON Schema 合规 |
-| 可观测性 | **Langfuse** | 监控、追踪 LLM 应用，评估输出 |
+| 可观测性 | 结构化日志；Langfuse 为后续增强 | 比赛版减少外部服务依赖 |
 | 视觉质检 | **Qwen2-VL**（多模态 judge） | PPTEVAL Content/Design/Coherence 评分 |
-| PPT 操作 | **浏览器侧 PptxGenJS** | 避免 PPTX↔HTML 双向转换工程风险 |
+| PPT 操作 | **服务端 python-pptx** | 已完成生成与下载闭环，比赛现场稳定可控 |
 | PDF 转换 | **LibreOffice Headless** | PPT/DOCX → PDF 渲染预览 |
 | 文档生成 | **python-docx**（教案）+ **Jinja2**（模板引擎） | 动态 Word 文档，HTML/文本合并到结构化文档 |
 | 信息图表 | **ECharts / Mermaid** | 动态生成信息图表，实时渲染可视化数据 |
 | Word 文档 | **OOXML 文档规范** | 生成含表格、流程、方法、代码的文档 |
 | 实时通信 | **WebSocket + SSE** | 双向实时推送 + 进度流推送 |
 | **需求澄清** | **固定槽位 + 动态追问 + DAG 可视化** | 可演示，无训练成本 |
-| **PPT 生成** | **LLM JSON → PptxGenJS → .pptx** | 浏览器侧，无服务端代码执行风险 |
+| **PPT 生成** | **受校验大纲 → python-pptx → .pptx** | LLM 不执行代码，后端统一生成、存储和下载 |
 | Word 生成 | **python-docx**（服务端） | 标准库，够用 |
 | 互动内容 | **HTML5 模板 + LLM JSON 填充** | 4 种模板（动画/选择题/拖拽/卡片），浏览器侧渲染 |
 | GIF 导出 | **gif.js**（浏览器侧 Web Worker） | 动画 → 静态动图 |
@@ -739,7 +733,7 @@ created_at           action_json        excerpt (text)
 | **视觉质检** | **PPTEVAL + self-correction 最多 2 轮** | 与人类评估一致 |
 | **数据流采集** | **MockRecorder.js**（开发调试） | 记录虚拟操作序列，调试 LLM 输入用，**不进生产** |
 | **开发辅助** | **Cursor / Claude-Code**（开发期 IDE） | 通用多模态对话 AI 平台，仅开发阶段使用，**非运行时依赖** |
-| 鉴权 | JWT + **RBAC** | 身份认证 + 细粒度权限管理 |
+| 鉴权 | JWT（可配置） | `AUTH_REQUIRED=true` 时校验签名 token；细粒度 RBAC 仍待补齐 |
 
 ---
 
@@ -771,8 +765,8 @@ created_at           action_json        excerpt (text)
 - **超时限制**：LLM 调用超时 60s，生成任务超时 300s，超时自动取消
 - **资源限制**：图片 URL 必须属于白名单域名；文件上传大小受限
 - **内容过滤**：Prompt 层面防御提示词注入
-- **PptxGenJS 执行边界**：JSON Schema 限定 slides 数组最大长度（50 页）和单页最大文字量（2000 字符）
-- **无服务端代码执行**：生成闭环在浏览器侧完成，服务端仅返回 LLM 文本
+- **PPT 生成边界**：Pydantic / JSON Schema 限定 slides 数组最大长度（50 页）和单页最大文字量（2000 字符）
+- **无动态代码执行**：服务端只把受校验的结构化数据交给固定 python-pptx 生成器，不执行 LLM 返回的 Python / JavaScript
 
 ---
 

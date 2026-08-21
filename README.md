@@ -4,8 +4,8 @@
 
 ## 项目简介
 
-面向教师的"智能备课"Web 应用，支持：
-- 教学材料解析（PDF / Word / PPT / 图片 / 视频）
+面向教师的比赛级“智能备课”纯 Web 应用，目标能力包括：
+- 教学材料解析（PDF / DOCX / PPTX / Markdown / TXT；图片和视频保留上传接口）
 - 多轮对话澄清教学意图（GPS 模块）
 - 课件与教案生成（PPTAgent 模块）
 - 知识库检索增强（BGE-M3 + pgvector）
@@ -21,9 +21,12 @@ EduCreate-Smart-Class-Agent/
 ├── frontend/                      # React + Vite + TS 前端（按 §3.1 文档对齐）
 ├── docs/
 │   └── ARCHITECTURE.md            # 架构文档（设计源）
+├── docker/
+│   └── postgres/init.sql           # Compose 初始化 pgvector 扩展
 ├── scripts/
 │   └── push.ps1                   # 一键 git add + commit + push 脚本
 ├── docker-compose.yml             # 一键启动
+├── .env.example                   # Compose 数据库配置示例
 ├── 基础/                          # 外部参考材料（不纳入 git 跟踪）
 │   ├── 技术栈.md
 │   ├── 任务要求.md
@@ -37,23 +40,23 @@ EduCreate-Smart-Class-Agent/
 | 维度 | 选型 |
 |------|------|
 | 前端 | React 18 + Vite + TypeScript + Ant Design + TanStack Query + Zustand + XState + React Flow + ECharts + PDF.js |
-| 后端 | Python 3.11 + FastAPI + SQLAlchemy + Alembic + Pydantic + Celery |
-| 数据库 | SQLite（当前骨架默认）→ PostgreSQL + pgvector（目标架构）|
-| 缓存 | Redis |
-| 对象存储 | MinIO |
-| LLM | DeepSeek 主用，OpenAI-compatible provider 兜底（通过 LangChain 适配）|
+| 后端 | Python 3.11 + FastAPI + SQLAlchemy + Pydantic |
+| 数据库 | 本地开发使用 SQLite；Docker Compose 使用 PostgreSQL 16 + pgvector |
+| 文件存储 | 本地开发目录 / Docker 持久化卷 |
+| LLM | DeepSeek 主用，OpenAI-compatible provider 兜底 |
 | Embedding | BGE-M3 + ColPali（视觉检索）|
 | 重排 | bge-reranker-v2-m3 |
-| 实时通信 | REST API 主通道 + SSE（Server-Sent Events）|
+| PPTX 导出 | 后端 `python-pptx` |
+| 通信 | REST API；SSE 作为后续生成进度增强 |
 | 容器化 | Docker Compose |
 
-> 当前仓库仍处于骨架阶段。已完成 SQLite 本地持久化、文件落盘、PDF/DOCX/PPTX 文本解析与 chunks 入库；缓存、对象存储、LLM、Embedding、重排、实时通信等仍为架构选型和模块预留。
+> 比赛版遵循“核心闭环真实可用、部署依赖最少化”的原则。Redis / Celery 只在 OCR、视频转写等耗时任务异步化后接入；MinIO、WebTransport 不作为比赛交付硬依赖。
 
 ## 快速开始
 
 ### 方式一：Docker Compose（推荐）
 
-> 当前 Docker Compose 骨架阶段仅启动 `frontend` + `backend` 两个服务；PostgreSQL / Redis / MinIO / Celery Worker / 实时网关将在后续阶段接入。
+Docker Compose 启动 `frontend`、`backend`、`PostgreSQL + pgvector`，并为数据库和上传文件配置持久化卷。
 
 ```bash
 # 在仓库根目录
@@ -65,9 +68,9 @@ docker compose up --build
 | 端点 | 地址 |
 |------|------|
 | 前端 SPA | http://localhost:5173 |
-| 后端 API | http://localhost:8001 |
-| 后端交互式文档 | http://localhost:8001/docs |
-| 健康检查 | http://localhost:8001/health |
+| 后端 API | http://localhost:8000 |
+| 后端交互式文档 | http://localhost:8000/docs |
+| 健康检查 | http://localhost:8000/health |
 
 ### 方式二：本地开发模式
 
@@ -92,7 +95,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8001
 
 ```bash
 pytest -q
-curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8001/health
 ```
 
 #### 2. 启动前端（新终端）
@@ -103,7 +106,7 @@ npm install
 npm run dev
 ```
 
-前端开发服务器默认在 `http://localhost:5173`，通过 Vite proxy 转发 `/api/*` 到 `http://localhost:8000`。
+前端开发服务器默认在 `http://localhost:5173`，通过 Vite proxy 转发 `/api/*` 到本地后端 `http://localhost:8001`。Docker 模式由 Nginx 转发到容器内的 `backend:8000`。
 
 验证：
 
@@ -120,12 +123,12 @@ npm audit
 | `teachers` | `/api/v1/teachers` | 教师管理 |
 | `materials` | `/api/v1/materials` | 参考资料上传 / 解析 |
 | `lessons` | `/api/v1/lessons` | 教案 / 课件生成 |
-| `knowledge` | `/api/v1/knowledge` | 知识库 + 向量检索（pgvector） |
-| `exports` | `/api/v1/exports` | 导出（.pptx / .docx / zip） |
+| `knowledge` | `/api/v1/knowledge` | 已解析材料的本地词法检索；BGE-M3/pgvector 为后续升级 |
+| `exports` | `/api/v1/exports` | 使用 `python-pptx` 生成和下载 `.pptx` |
 | `gps` | `/api/v1/gps` | 教学意图澄清 |
 | `quality` | `/api/v1/quality` | 大纲质量检测 |
 
-详见 `http://localhost:8001/docs`。
+本地开发详见 `http://localhost:8001/docs`；Docker Compose 模式详见 `http://localhost:8000/docs`。
 
 ## 当前阶段
 
@@ -134,7 +137,7 @@ npm audit
 - [x] 后端 8 个 API 路由占位（auth / teachers / materials / lessons / knowledge / exports / gps / quality）
 - [x] 前端 10 个模块目录占位（features / stores / pages / components / flow / charts / preview / quality / ppt-export / services）
 - [x] 后端 14 个服务层文件骨架（gps / pptagent / rag / llm / parsers / generators）
-- [x] Docker Compose 一键启动 frontend + backend
+- [x] Docker Compose 一键启动 frontend + backend + PostgreSQL/pgvector
 - [x] README + .env.example
 - [x] 一键推送脚本 `scripts/push.ps1`
 - [x] 架构文档 `docs/ARCHITECTURE.md`
@@ -143,30 +146,32 @@ npm audit
 - [x] 前端路由跳转与 API base 配置对齐
 - [x] 前端 `npm run build` 通过
 - [x] 前端 `npm audit` 0 vulnerabilities
-- [x] 后端 `pytest -q` 通过（11 passed）
+- [x] 后端测试覆盖健康检查、材料、GPS、LLM、导出与流程接口
 - [x] SQLite 默认数据库与核心表自动建表（materials / chunks / lessons / lesson_irs / generation_jobs / generated_artifacts / edit_requests / rag_evidences）
 - [x] 参考资料安全上传落盘（UUID 目录、扩展名白名单、大小限制）
 - [x] PDF / DOCX / PPTX 文本解析并写入 chunks
 - [x] 图片 / 视频上传保存，但不伪造 OCR/字幕内容，等待后续 OCR / Whisper 接入
 - [x] **阶段一完成**：意图澄清页面（ClarifyPage）完整实现，含 DAG 可视化、追问建议、提交后 session_id 持久化、GPT-4o 预览能力、Ant Design 五步进度条、Vite 代理端口修正（8001）
+- [x] GPS 槽位提取、动态追问与 DAG 完成度计算
+- [x] 基于 GPS 字段动态生成课件大纲
+- [x] 后端 `python-pptx` 真实生成与下载 PPTX
+- [x] 基于大纲结构的清晰度 / 覆盖度 / 互动性质检
+- [x] DeepSeek / OpenAI-compatible LLM provider 抽象、重试与结构化输出校验
 
 ⏳ 进行中（服务层骨架就绪，业务逻辑待填）
-- [ ] PostgreSQL + pgvector 接入（替换当前 SQLite 默认开发库）
+- [ ] 为 chunks 增加向量字段、索引和检索查询（Compose 已提供 pgvector 数据库）
 - [ ] BGE-M3 嵌入服务接入
-- [ ] LLM provider 抽象层接入 DeepSeek / fallback
 - [ ] OCR / 视频转写解析流水线（图片 / 视频）
 - [ ] 语音输入（Web Speech API + MediaRecorder fallback）
-- [ ] GPS 教学意图结构化提取（gps/clarifier + reasoner + dag_builder）
-- [ ] PPTAgent outline 生成 + 编辑 actions（pptagent/outliner + editor）
-- [ ] 课件导出实现（安全版本 PptxGenJS 或等价导出方案）
+- [ ] PPTAgent 参考页分析 + 编辑 actions + self-correction
 - [ ] 教案 python-docx 生成
 - [ ] 互动内容 Jinja2 模板生成
 - [ ] 教师修改意见 → 再生成闭环
-- [ ] 实时网关（WebTransport / WS / SSE）
+- [ ] 耗时任务异步化后接入 Redis + Celery，并通过 SSE 推送进度
 
 ## 当前验证结果
 
-最近一次本地验证：
+最近一次本地验证（2026-08-21，Python 3.12）：
 
 ```bash
 # frontend
@@ -178,17 +183,21 @@ pytest -q
 ```
 
 结果：
-- 前端构建通过。
-- 前端依赖审计为 0 vulnerabilities。
-- 后端测试通过：11 passed。
-- 后端测试使用 `backend/tests/_tmp/` 隔离数据库、上传文件和 pytest cache，避免污染开发数据。
+
+- 前端 TypeScript 检查和 Vite 生产构建通过。
+- 后端测试通过：`55 passed`；存在 29 条 `datetime.utcnow()` 弃用警告，不影响当前结果。
+- Compose YAML 静态解析通过，包含 `postgres`、`backend`、`frontend` 三个服务和两个持久化卷。
+- 当前验证环境未安装 Docker，尚未在本机实际启动 PostgreSQL 容器。
+
+测试使用 `backend/tests/_tmp/` 隔离 SQLite 数据库、上传文件和 pytest cache，避免污染开发数据。Docker 模式单独使用 PostgreSQL + pgvector。
 
 ## 已知边界
 
-- GPS、PPTAgent、RAG、导出等服务层仍为占位实现；materials 上传、文件落盘、文本解析、chunks 入库、lesson 工作区创建已具备最小真实闭环。
-- Docker Compose 当前只启动前端和后端，尚未接入数据库、缓存、对象存储和异步 Worker。
-- 当前默认数据库是本地 SQLite，运行数据位于 `backend/data/` 与 `backend/uploads/`，已被 `.gitignore` 排除；测试运行数据位于 `backend/tests/_tmp/`。
-- `pptxgenjs` 因当前依赖链存在高危审计问题，暂未作为生产依赖安装；后续实现 `ppt-export` 时需重新评估安全版本或做图片输入隔离。
+- GPS、动态大纲、规则质检和 PPTX 导出已有可运行实现；PPTAgent 的参考页编辑范式和模型增强仍需补齐。
+- `/knowledge/search` 已接通基于 chunks 的本地词法检索，并为后续 BGE-M3/pgvector 保留接口；当前不是语义向量检索。
+- 本地直接运行默认使用 SQLite，数据位于 `backend/data/` 与 `backend/uploads/`；Docker 使用 PostgreSQL 和命名卷，测试数据位于 `backend/tests/_tmp/`。
+- 比赛版正式 PPT 导出路径是后端 `python-pptx`；PptxGenJS 仅保留为未来浏览器内编辑的候选方案。
+- Redis / Celery、MinIO 和 WebTransport 暂不进入比赛版运行时，除非对应业务能力真正接入。
 - `基础/` 为外部参考材料目录，已被 `.gitignore` 排除。
 
 ## 许可

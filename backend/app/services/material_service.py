@@ -2,6 +2,7 @@
 
 from datetime import datetime
 from pathlib import Path
+import shutil
 from typing import Optional
 from uuid import uuid4
 
@@ -13,14 +14,24 @@ from app.models import Chunk, Material
 from app.schemas import ChunkResponse, MaterialDetailResponse, MaterialResponse
 from app.services.parsers.parser import parse
 
-ALLOWED_EXTENSIONS = {"pdf", "doc", "docx", "ppt", "pptx", "png", "jpg", "jpeg", "mp4"}
+# Formats currently accepted by the API. The web client advertises the
+# text-extractable set (pdf/docx/pptx/md/txt); image/video and legacy Office
+# files are retained for backwards-compatible persistence with an explicit
+# parser warning until OCR/conversion/transcription is connected.
+ALLOWED_EXTENSIONS = {
+    "pdf", "doc", "docx", "ppt", "pptx", "md", "txt",
+    "png", "jpg", "jpeg", "mp4",
+}
 
 
 def _safe_filename(filename: Optional[str]) -> str:
     """Strip path components and keep a stable fallback filename."""
     if not filename:
         return "unnamed"
-    safe = Path(filename).name.strip().replace("\x00", "")
+    # Normalize both slash styles because the backend may run on Linux while
+    # browsers upload a Windows-style filename.
+    normalized = filename.replace("\\", "/").replace("\x00", "")
+    safe = Path(normalized).name.strip()
     return safe or "unnamed"
 
 
@@ -184,3 +195,20 @@ def list_material_chunks(db: Session, material_id: str) -> list[ChunkResponse]:
     """Return parsed chunks for one material."""
     material = get_material_or_404(db, material_id)
     return [ChunkResponse.model_validate(chunk) for chunk in material.chunks]
+
+
+def delete_material(db: Session, material_id: str) -> None:
+    """Delete a material, its chunks, and its managed upload directory."""
+    material = get_material_or_404(db, material_id)
+    storage_path = Path(material.storage_path).resolve()
+    upload_root = resolve_runtime_path(get_settings().upload_dir).resolve()
+    if upload_root not in storage_path.parents:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="material storage path is outside the upload directory",
+        )
+
+    db.delete(material)
+    db.commit()
+    # Files are removed only after the database commit succeeds.
+    shutil.rmtree(storage_path.parent, ignore_errors=True)

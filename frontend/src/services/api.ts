@@ -165,16 +165,21 @@ export interface QualityReport {
 const API_BASE = (import.meta.env.VITE_API_BASE || "/api/v1").replace(/\/$/, "");
 
 async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = localStorage.getItem("educreate-access-token");
   const res = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers: {
       "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
       ...init?.headers,
     },
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || `HTTP ${res.status}`);
+  }
+  if (res.status === 204) {
+    return undefined as T;
   }
   return res.json();
 }
@@ -184,7 +189,12 @@ async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
 export const apiUploadMaterial = (file: File): Promise<Material> => {
   const form = new FormData();
   form.append("file", file);
-  return fetch(`${API_BASE}/materials/upload`, { method: "POST", body: form }).then(
+  const token = localStorage.getItem("educreate-access-token");
+  return fetch(`${API_BASE}/materials/upload`, {
+    method: "POST",
+    body: form,
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  }).then(
     async (r) => {
       if (!r.ok) {
         const err = await r.json().catch(() => ({ detail: r.statusText }));
@@ -195,8 +205,34 @@ export const apiUploadMaterial = (file: File): Promise<Material> => {
   );
 };
 
+export const apiLogin = async (username: string, password: string): Promise<string> => {
+  const body = new URLSearchParams({ username, password });
+  const response = await fetch(`${API_BASE}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  if (!response.ok) {
+    const error = await response.json().catch(() => ({ detail: response.statusText }));
+    throw new Error(error.detail || `HTTP ${response.status}`);
+  }
+  const payload = (await response.json()) as { access_token: string };
+  localStorage.setItem("educreate-access-token", payload.access_token);
+  return payload.access_token;
+};
+
+export const apiGetCurrentUser = (): Promise<{ user_id: string; role: string }> =>
+  apiFetch<{ user_id: string; role: string }>("/auth/me");
+
+export const apiLogout = (): void => {
+  localStorage.removeItem("educreate-access-token");
+};
+
 export const apiListMaterials = (): Promise<Material[]> =>
   apiFetch<Material[]>("/materials");
+
+export const apiDeleteMaterial = (materialId: string): Promise<void> =>
+  apiFetch<void>(`/materials/${materialId}`, { method: "DELETE" });
 
 // ── GPS 澄清 ─────────────────────────────────────────────────────────────────
 

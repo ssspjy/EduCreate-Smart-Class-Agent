@@ -16,7 +16,7 @@ import {
 } from "antd";
 import { ExportOutlined, ArrowLeftOutlined, FieldTimeOutlined } from "@ant-design/icons";
 import { useWorkflowStore } from "../stores/workflow";
-import { apiGenerateOutline } from "../services/api";
+import { apiGenerateOutline, apiUpsertLessonIR } from "../services/api";
 import type { GpsClarifyResult, Outline } from "../services/api";
 
 const { Title, Text } = Typography;
@@ -35,7 +35,7 @@ const DIFFICULTY_TEXT: Record<string, string> = {
 
 export default function OutlinePage() {
   const navigate = useNavigate();
-  const { gpsResult, outline, setOutline, setCurrentStep } = useWorkflowStore();
+  const { gpsResult, outline, setOutline, setCurrentStep, lessonId, materials } = useWorkflowStore();
   const [loading, setLoading] = useState(false);
 
   // 没有 GPS 结果时，提示跳转
@@ -52,6 +52,31 @@ export default function OutlinePage() {
     }
     setLoading(true);
     try {
+      if (lessonId) {
+        await apiUpsertLessonIR({
+          lesson_id: lessonId,
+          slots: {
+            subject: gpsResult.subject,
+            grade: gpsResult.grade,
+            topic: gpsResult.topic,
+            duration_min: 45,
+            difficulty: gpsResult.difficulty,
+            style: gpsResult.style,
+            objectives: gpsResult.objectives,
+            key_points: gpsResult.key_points,
+            activities: [],
+            prerequisites: [],
+          },
+          dag_snapshot: { turns: [] },
+          reference_materials: materials.map((material) => ({
+            material_id: material.file_id,
+            chunk_ids: [],
+            bound_slot: "",
+            excerpt: "",
+            page_ref: null,
+          })),
+        });
+      }
       const result = await apiGenerateOutline(gpsResult as GpsClarifyResult);
       setOutline(result);
       message.success("大纲生成成功");

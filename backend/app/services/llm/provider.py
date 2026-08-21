@@ -133,7 +133,7 @@ class LLMProvider(ABC):
                     raw_data = parsed["text"]
                     parsed = json.loads(parsed["text"])
                 return schema.model_validate(parsed)
-            except (json.JSONDecodeError, Exception) as exc:
+            except (json.JSONDecodeError, ValueError, TypeError) as exc:
                 logger.warning(
                     "[%s] Structured output parse failed (attempt %d/%d): %s — raw: %s",
                     self.provider_name, attempt + 1, max_retries + 1, exc, text[:200],
@@ -169,11 +169,12 @@ class DeepSeekProvider(LLMProvider):
         api_key: Optional[str] = None,
         base_url: Optional[str] = None,
     ):
-        self.api_key = api_key or os.environ.get("DEEPSEEK_API_KEY", "")
-        self.base_url = base_url or os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
+        settings = get_settings()
+        self.api_key = api_key or settings.deepseek_api_key or os.environ.get("DEEPSEEK_API_KEY", "")
+        self.base_url = base_url or settings.deepseek_base_url or os.environ.get("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
         # reasoning 模型用于复杂推理场景（可选）
-        self.model = os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
-        self.reasoner_model = os.environ.get("DEEPSEEK_REASONER_MODEL", "deepseek-reasoner")
+        self.model = settings.deepseek_model or os.environ.get("DEEPSEEK_MODEL", "deepseek-chat")
+        self.reasoner_model = settings.deepseek_reasoner_model or os.environ.get("DEEPSEEK_REASONER_MODEL", "deepseek-reasoner")
         self.max_retries = 2
         self._supports_structured = True  # DeepSeek API 支持 response_format=json_object
 
@@ -293,7 +294,7 @@ class DeepSeekProvider(LLMProvider):
                 text = data["choices"][0]["message"]["content"]
                 parsed = json.loads(text)
                 return schema.model_validate(parsed)
-            except (json.JSONDecodeError, Exception) as exc:
+            except (json.JSONDecodeError, ValueError, TypeError) as exc:
                 logger.warning(
                     "[DeepSeek] Structured output parse failed (attempt %d/%d): %s",
                     attempt + 1, max_retries + 1, exc,
@@ -321,9 +322,10 @@ class OpenAIProvider(LLMProvider):
     """OpenAI API provider（与 DeepSeek 接口一致）。"""
 
     def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None):
-        self.api_key = api_key or os.environ.get("OPENAI_API_KEY", "")
-        self.base_url = base_url or os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
-        self.model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+        settings = get_settings()
+        self.api_key = api_key or settings.openai_api_key or os.environ.get("OPENAI_API_KEY", "")
+        self.base_url = base_url or settings.openai_base_url or os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1")
+        self.model = settings.openai_model or os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
         self.max_retries = 2
 
     @property
@@ -388,7 +390,8 @@ _PROVIDER_MAP: dict[str, type[LLMProvider]] = {
 
 def get_llm_provider() -> LLMProvider:
     """根据环境变量选择 LLM provider。"""
-    provider_name = os.environ.get("LLM_PROVIDER", "deepseek").lower()
+    settings = get_settings()
+    provider_name = (settings.llm_provider or os.environ.get("LLM_PROVIDER", "deepseek")).lower()
     provider_cls = _PROVIDER_MAP.get(provider_name, DeepSeekProvider)
     return provider_cls()
 

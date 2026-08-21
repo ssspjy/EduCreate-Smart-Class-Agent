@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.db import get_db
+from app.core.security import require_user
 from app.models import Lesson, LessonIR, Material
 from app.schemas import GpsClarifyResult, LessonIRCreate, LessonIRListResponse, LessonIRResponse
 from app.schemas.lesson_ir import (
@@ -19,7 +20,7 @@ from app.schemas.lesson_ir import (
     TeachingSlots,
 )
 
-router = APIRouter(tags=["lessons"])
+router = APIRouter(tags=["lessons"], dependencies=[Depends(require_user)])
 
 
 # ── helpers ───────────────────────────────────────────────────────────────────

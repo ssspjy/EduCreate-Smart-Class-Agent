@@ -56,6 +56,41 @@ def test_upload_docx_extracts_text_chunks(client: TestClient) -> None:
     assert "同一平面" in joined
 
 
+def test_upload_markdown_extracts_text_chunks(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/materials/upload",
+        files={"file": ("notes.md", "## 浮力\n阿基米德原理是重点。", "text/markdown")},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "parsed"
+    assert payload["chunk_count"] == 1
+
+    chunks = client.get(f"/api/v1/materials/{payload['file_id']}/chunks").json()
+    assert "阿基米德原理" in chunks[0]["content"]
+
+    search = client.post(
+        "/api/v1/knowledge/search",
+        json={"query": "阿基米德原理", "top_k": 3, "material_ids": [payload["file_id"]]},
+    )
+    assert search.status_code == 200
+    assert search.json()[0]["source"] == "notes.md"
+
+
+def test_delete_material_removes_record_and_file(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/materials/upload",
+        files={"file": ("notes.txt", "可删除材料", "text/plain")},
+    )
+    assert response.status_code == 200
+    material_id = response.json()["file_id"]
+
+    deleted = client.delete(f"/api/v1/materials/{material_id}")
+    assert deleted.status_code == 204
+    assert client.get(f"/api/v1/materials/{material_id}").status_code == 404
+
+
 def test_upload_filename_path_is_sanitized(client: TestClient) -> None:
     response = client.post(
         "/api/v1/materials/upload",

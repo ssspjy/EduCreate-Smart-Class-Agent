@@ -1,5 +1,6 @@
 // stores/workflow.ts — 备课流程全局状态（Zustand）
 import { create } from "zustand";
+import { persist } from "zustand/middleware";
 import type {
   GpsClarifyResult,
   Outline,
@@ -54,7 +55,7 @@ interface WorkflowState {
   setError: (e: string | null) => void;
 }
 
-export const useWorkflowStore = create<WorkflowState>((set) => ({
+export const useWorkflowStore = create<WorkflowState>()(persist((set) => ({
   currentStep: "upload",
   setCurrentStep: (step) => set({ currentStep: step }),
 
@@ -85,4 +86,15 @@ export const useWorkflowStore = create<WorkflowState>((set) => ({
 
   error: null,
   setError: (e) => set({ error: e }),
+}), {
+  name: "educreate-workflow",
+  partialize: (state) => ({
+    currentStep: state.currentStep,
+    materials: state.materials,
+    gpsResult: state.gpsResult,
+    lessonId: state.lessonId,
+    gpsSessionId: state.gpsSessionId,
+    outline: state.outline,
+    qualityReport: state.qualityReport,
+  }),
 }));

@@ -3,9 +3,10 @@
 文档 §3.2 API/v1/teachers.py。
 """
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from app.core.security import require_user
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_user)])
 
 
 @router.get("", summary="教师列表")

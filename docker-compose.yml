@@ -1,10 +1,28 @@
-# Docker Compose — 师创智课一键启动
+# Docker Compose — 师创智课比赛版一键启动
 #
-# 本文件遵循 docs/ARCHITECTURE.md §2 部署拓扑。
-# 当前骨架阶段仅启动 frontend + backend 两个服务，验证可联通后再接入
-# PostgreSQL + pgvector / Redis / MinIO / Celery Worker / 实时网关。
+# 只编排当前实际使用的核心服务：前端、后端和 PostgreSQL + pgvector。
+# Redis / Celery 仅在耗时任务异步化后接入，MinIO 与实时网关不作为比赛版硬依赖。
 
 services:
+  postgres:
+    image: pgvector/pgvector:0.8.6-pg16-bookworm
+    container_name: educreate-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-educreate}
+      POSTGRES_USER: ${POSTGRES_USER:-educreate}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-educreate}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/10-enable-vector.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
   backend:
     build:
       context: ./backend
@@ -17,6 +35,26 @@ services:
       - APP_NAME=EduCreate Smart Class Agent
       - APP_VERSION=0.1.0
       - CORS_ORIGINS=["http://localhost:5173","http://127.0.0.1:5173","http://localhost","http://frontend:80"]
+      - DATABASE_URL=postgresql+psycopg2://${POSTGRES_USER:-educreate}:${POSTGRES_PASSWORD:-educreate}@postgres:5432/${POSTGRES_DB:-educreate}
+      - DATABASE_AUTO_CREATE=true
+      - UPLOAD_DIR=/app/uploads
+      - LLM_PROVIDER=${LLM_PROVIDER:-deepseek}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - DEEPSEEK_BASE_URL=${DEEPSEEK_BASE_URL:-https://api.deepseek.com}
+      - DEEPSEEK_MODEL=${DEEPSEEK_MODEL:-deepseek-chat}
+      - DEEPSEEK_REASONER_MODEL=${DEEPSEEK_REASONER_MODEL:-deepseek-reasoner}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      - OPENAI_MODEL=${OPENAI_MODEL:-gpt-4o-mini}
+      - AUTH_REQUIRED=${AUTH_REQUIRED:-false}
+      - JWT_SECRET=${JWT_SECRET:-change-this-secret-in-production}
+      - DEMO_USERNAME=${DEMO_USERNAME:-demo-teacher}
+      - DEMO_PASSWORD=${DEMO_PASSWORD:-change-me}
+    volumes:
+      - backend_uploads:/app/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-sf", "http://localhost:8000/health"]
       interval: 10s
@@ -34,3 +72,7 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+
+volumes:
+  postgres_data:
+  backend_uploads:

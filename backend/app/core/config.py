@@ -22,6 +22,19 @@ class Settings(BaseSettings):
     database_auto_create: bool = True
     upload_dir: Path = Path("./uploads")
     max_upload_size_mb: int = 50
+    llm_provider: str = "deepseek"
+    deepseek_api_key: str = ""
+    deepseek_base_url: str = "https://api.deepseek.com"
+    deepseek_model: str = "deepseek-chat"
+    deepseek_reasoner_model: str = "deepseek-reasoner"
+    openai_api_key: str = ""
+    openai_base_url: str = "https://api.openai.com/v1"
+    openai_model: str = "gpt-4o-mini"
+    auth_required: bool = False
+    jwt_secret: str = "change-this-secret-in-production"
+    access_token_expire_minutes: int = 480
+    demo_username: str = "demo-teacher"
+    demo_password: str = "change-me"
 
     model_config = SettingsConfigDict(
         env_file=".env",

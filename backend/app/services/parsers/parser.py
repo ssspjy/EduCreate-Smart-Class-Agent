@@ -84,6 +84,12 @@ def _parse_pptx(path: Path) -> list[ParsedChunk]:
     return chunks
 
 
+def _parse_plain_text(path: Path) -> list[ParsedChunk]:
+    """Parse Markdown and plain-text materials as UTF-8 text."""
+    text = path.read_text(encoding="utf-8-sig", errors="replace")
+    return [ParsedChunk(content=part) for part in _split_text(text)]
+
+
 async def parse(file_path: str, file_type: str) -> ParseResult:
     """Dispatch to the parser for a supported material extension."""
     path = Path(file_path)
@@ -95,6 +101,9 @@ async def parse(file_path: str, file_type: str) -> ParseResult:
         return ParseResult(chunks=_parse_docx(path), warnings=[])
     if extension == "pptx":
         return ParseResult(chunks=_parse_pptx(path), warnings=[])
+    if extension in {"md", "txt"}:
+        return ParseResult(chunks=_parse_plain_text(path), warnings=[])
+
     if extension in {"png", "jpg", "jpeg"}:
         return ParseResult(chunks=[], warnings=["image OCR is not connected yet"])
     if extension == "mp4":

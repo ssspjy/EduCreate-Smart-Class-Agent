@@ -1,5 +1,7 @@
 // App.tsx — 师创智课教师工作台入口
-import { Routes, Route, Navigate, Link } from "react-router-dom";
+import { Routes, Route, Navigate, Link, useLocation, useNavigate } from "react-router-dom";
+import { useEffect, useState, type ReactNode } from "react";
+import { Button, Spin } from "antd";
 import "./App.css";
 import UploadPage from "./pages/UploadPage";
 import ClarifyPage from "./pages/ClarifyPage";
@@ -7,6 +9,35 @@ import OutlinePage from "./pages/OutlinePage";
 import PreviewPage from "./pages/PreviewPage";
 import QualityPage from "./pages/QualityPage";
 import { useWorkflowStore } from "./stores/workflow";
+import LoginPage from "./pages/LoginPage";
+import { apiGetCurrentUser, apiLogout } from "./services/api";
+
+function RequireAuth({ children }: { children: ReactNode }) {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [checking, setChecking] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    apiGetCurrentUser()
+      .then(() => {
+        if (active) setChecking(false);
+      })
+      .catch(() => {
+        if (active) {
+          navigate("/login", { replace: true, state: { from: location } });
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [location, navigate]);
+
+  if (checking) {
+    return <div className="page" style={{ minHeight: "100vh", display: "grid", placeItems: "center" }}><Spin /></div>;
+  }
+  return <>{children}</>;
+}
 
 function Dashboard() {
   const { currentStep } = useWorkflowStore();
@@ -29,6 +60,15 @@ function Dashboard() {
         <Link to="/upload">课程共创</Link>
         <Link to="/quality">质量中心</Link>
         <Link to="/health">健康检查</Link>
+        <Button
+          type="link"
+          onClick={() => {
+            apiLogout();
+            window.location.href = "/login";
+          }}
+        >
+          退出登录
+        </Button>
       </nav>
     </div>
   );
@@ -55,13 +95,14 @@ function HealthPage() {
 export default function App() {
   return (
     <Routes>
-      <Route path="/" element={<Dashboard />} />
-      <Route path="/upload" element={<UploadPage />} />
-      <Route path="/clarify" element={<ClarifyPage />} />
-      <Route path="/outline" element={<OutlinePage />} />
-      <Route path="/preview" element={<PreviewPage />} />
-      <Route path="/quality" element={<QualityPage />} />
-      <Route path="/health" element={<HealthPage />} />
+      <Route path="/login" element={<LoginPage />} />
+      <Route path="/" element={<RequireAuth><Dashboard /></RequireAuth>} />
+      <Route path="/upload" element={<RequireAuth><UploadPage /></RequireAuth>} />
+      <Route path="/clarify" element={<RequireAuth><ClarifyPage /></RequireAuth>} />
+      <Route path="/outline" element={<RequireAuth><OutlinePage /></RequireAuth>} />
+      <Route path="/preview" element={<RequireAuth><PreviewPage /></RequireAuth>} />
+      <Route path="/quality" element={<RequireAuth><QualityPage /></RequireAuth>} />
+      <Route path="/health" element={<RequireAuth><HealthPage /></RequireAuth>} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );

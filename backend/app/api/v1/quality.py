@@ -7,10 +7,11 @@
 import logging
 from pydantic import BaseModel
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from app.core.security import require_user
 
 logger = logging.getLogger(__name__)
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_user)])
 
 
 # ── 请求 / 响应 ────────────────────────────────────────────────────────────────

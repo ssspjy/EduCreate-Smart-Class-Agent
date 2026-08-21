@@ -11,8 +11,9 @@
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
+from sqlalchemy.orm import Session
 
 from app.schemas.gps import (
     ChatMessage,
@@ -28,9 +29,12 @@ from app.services.gps import (
     get_or_create_session,
     get_session,
 )
+from app.db import get_db
+from app.rag.retriever import retrieve
+from app.core.security import require_user
 
 logger = logging.getLogger(__name__)
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_user)])
 
 
 # ── 请求体 ─────────────────────────────────────────────────────────────────────
@@ -64,7 +68,7 @@ def get_slots() -> dict[str, str]:
 # ── POST /clarify — GPS 澄清 ──────────────────────────────────────────────────
 
 @router.post("/clarify", response_model=ClarifyResponse, summary="GPS 意图澄清（首次/多轮）")
-async def clarify(body: ClarifyRequestBody) -> ClarifyResponse:
+async def clarify(body: ClarifyRequestBody, db: Session = Depends(get_db)) -> ClarifyResponse:
     """GPS 澄清核心接口。
 
     流程：
@@ -92,9 +96,14 @@ async def clarify(body: ClarifyRequestBody) -> ClarifyResponse:
 
     # 处理本轮用户输入
     if body.query:
+        context_hits = await retrieve(db, body.query, top_k=5, material_ids=body.materials or None)
+        materials_context = "\n".join(
+            f"[{hit.source}{f' 第{hit.page_ref}页' if hit.page_ref else ''}] {hit.content}"
+            for hit in context_hits
+        )
         result = await session.process_turn(
             user_message=body.query,
-            materials_context=None,  # TODO: 接入 rag_service 获取材料摘要
+            materials_context=materials_context or None,
         )
         return ClarifyResponse(
             result=GpsClarifyResult.model_validate(result["result"]),

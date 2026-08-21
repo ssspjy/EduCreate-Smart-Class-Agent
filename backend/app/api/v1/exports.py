@@ -7,17 +7,19 @@
 
 import logging
 import os
+import re
 from pathlib import Path
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.core.config import get_settings, resolve_runtime_path
 from app.services.generators.pptx_generator import generate_pptx
+from app.core.security import require_user
 
 logger = logging.getLogger(__name__)
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_user)])
 
 settings = get_settings()
 EXPORT_DIR = resolve_runtime_path(settings.upload_dir) / "exports"
@@ -32,6 +34,13 @@ class PptxExportRequest(BaseModel):
     sections: list[dict]  # OutlineSection[]
 
 
+def _safe_export_stem(title: str) -> str:
+    """Convert a user title into a flat, filesystem-safe filename stem."""
+    stem = re.sub(r"[^\w\-.\u4e00-\u9fff]+", "_", title.strip(), flags=re.UNICODE)
+    stem = stem.strip("._")
+    return (stem or "lesson")[:100]
+
+
 @router.post("/pptx", summary="导出 PPTX 文件")
 async def export_pptx(body: PptxExportRequest) -> dict:
     """基于大纲结构生成 PPTX 文件。
@@ -39,7 +48,7 @@ async def export_pptx(body: PptxExportRequest) -> dict:
     文件存储在 uploads/exports/ 目录，通过 GET /exports/{filename} 下载。
     """
     try:
-        filename = f"{body.title.replace(' ', '_')}_{os.urandom(4).hex()}.pptx"
+        filename = f"{_safe_export_stem(body.title)}_{os.urandom(4).hex()}.pptx"
         filepath = EXPORT_DIR / filename
 
         generate_pptx(body.dict(), str(filepath))
@@ -62,14 +71,19 @@ async def export_pptx(body: PptxExportRequest) -> dict:
 async def download_pptx(filename: str) -> FileResponse:
     """下载已导出的 PPTX 文件。"""
     # 安全检查：禁止路径穿越
-    if ".." in filename or "/" in filename or "\\" in filename:
+    if (
+        ".." in filename
+        or "/" in filename
+        or "\\" in filename
+        or not filename.lower().endswith(".pptx")
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="非法文件名",
         )
 
     filepath = EXPORT_DIR / filename
-    if not filepath.exists():
+    if not filepath.is_file():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"文件不存在：{filename}",

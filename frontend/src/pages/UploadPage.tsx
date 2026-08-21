@@ -1,6 +1,6 @@
 // pages/UploadPage.tsx — 课程资料上传页
 // 支持多文件上传、自动解析、材料管理
-import { useCallback, useState, type DragEvent } from "react";
+import { useCallback, useRef, useState, type DragEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Alert,
@@ -25,13 +25,14 @@ import {
   FileOutlined,
   RightOutlined,
 } from "@ant-design/icons";
-import { apiUploadMaterial } from "../services/api";
+import { apiDeleteMaterial, apiUploadMaterial } from "../services/api";
 import { useWorkflowStore } from "../stores/workflow";
 import type { Material } from "../services/api";
 
 const { Title, Text } = Typography;
 
 type UploadStage = "idle" | "uploading" | "parsing" | "partial" | "done";
+type UploadFailure = { filename: string; reason: string };
 
 const STATUS_COLOR: Record<string, string> = {
   uploaded: "blue",
@@ -54,9 +55,10 @@ const STATUS_TEXT: Record<string, string> = {
 export default function UploadPage() {
   const navigate = useNavigate();
   const { materials, addMaterial, removeMaterial, setCurrentStep } = useWorkflowStore();
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [stage, setStage] = useState<UploadStage>("idle");
   const [uploadingCount, setUploadingCount] = useState(0);
-  const [failedFiles, setFailedFiles] = useState<string[]>([]);
+  const [failedFiles, setFailedFiles] = useState<UploadFailure[]>([]);
 
   // 实际执行上传
   const handleUpload = useCallback(async (files: File[]) => {
@@ -65,15 +67,21 @@ export default function UploadPage() {
     setUploadingCount(files.length);
     setFailedFiles([]);
     const newMaterials: Material[] = [];
-    const failed: string[] = [];
+    const failed: UploadFailure[] = [];
 
     for (const file of files) {
       try {
         const mat = await apiUploadMaterial(file);
+        // The backend keeps a failed material record so the error is inspectable.
+        // Do not treat that 200 response as a successful upload in the workflow.
+        if (mat.status === "failed" || mat.status === "error") {
+          throw new Error(mat.error_message || "服务器解析失败");
+        }
         newMaterials.push(mat);
         addMaterial(mat);
       } catch (err) {
-        failed.push(file.name);
+        const reason = err instanceof Error ? err.message : "未知上传错误";
+        failed.push({ filename: file.name, reason });
         console.error(`[UploadPage] ${file.name} 上传失败：`, err);
       }
     }
@@ -95,14 +103,20 @@ export default function UploadPage() {
 
   // 拖拽文件时触发上传
   const handleDrop = useCallback(async (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
     const files = Array.from(e.dataTransfer.files);
     await handleUpload(files);
   }, [handleUpload]);
 
   // 删除单个材料
-  const handleDelete = (fileId: string) => {
-    removeMaterial(fileId);
-    message.success("已删除");
+  const handleDelete = async (fileId: string) => {
+    try {
+      await apiDeleteMaterial(fileId);
+      removeMaterial(fileId);
+      message.success("已删除");
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : "删除失败");
+    }
   };
 
   // 继续到澄清页
@@ -141,6 +155,19 @@ export default function UploadPage() {
       <Row gutter={16}>
         {/* 左侧：上传区 */}
         <Col span={14}>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+             accept=".pdf,.pptx,.docx,.md,.txt"
+            style={{ display: "none" }}
+            onChange={(e) => {
+              const files = Array.from(e.currentTarget.files || []);
+              void handleUpload(files);
+              // Allow selecting the same file again after a failed attempt.
+              e.currentTarget.value = "";
+            }}
+          />
           <Card
             title="上传参考材料"
             size="small"
@@ -157,18 +184,10 @@ export default function UploadPage() {
                 textAlign: "center",
                 background: "#fafafa",
                 cursor: "pointer",
-                marginBottom: 16,
+              marginBottom: 16,
               }}
               onClick={() => {
-                const input = document.createElement("input");
-                input.type = "file";
-                input.multiple = true;
-                input.accept = ".pdf,.ppt,.pptx,.doc,.docx,.md,.txt";
-                input.onchange = (e) => {
-                  const files = Array.from((e.target as HTMLInputElement).files || []);
-                  handleUpload(files);
-                };
-                input.click();
+                fileInputRef.current?.click();
               }}
             >
               <CloudUploadOutlined style={{ fontSize: 48, color: "#1890ff", marginBottom: 8 }} />
@@ -194,6 +213,15 @@ export default function UploadPage() {
               <Alert
                 type="error"
                 message={`${failedCount} 个文件上传失败，请重试`}
+                description={
+                  <div>
+                    {failedFiles.map(({ filename, reason }) => (
+                      <div key={`${filename}-${reason}`}>
+                        {filename}：{reason}
+                      </div>
+                    ))}
+                  </div>
+                }
                 style={{ marginBottom: 12 }}
               />
             )}
@@ -212,7 +240,7 @@ export default function UploadPage() {
                         danger
                         size="small"
                         icon={<DeleteOutlined />}
-                        onClick={() => handleDelete(item.file_id)}
+                         onClick={() => void handleDelete(item.file_id)}
                       />,
                     ]}
                   >
