@@ -1,9 +1,4 @@
-"""Material parser entrypoint.
-
-The skeleton implements safe text extraction for PDF/DOCX/PPTX now. Image and
-video files are accepted and persisted, but OCR/transcription are intentionally
-left as explicit future stages instead of fabricating searchable text.
-"""
+"""Material parser entrypoint with explicit partial-capability warnings."""
 
 from dataclasses import dataclass
 from pathlib import Path
@@ -49,23 +44,46 @@ def _split_text(text: str, max_chars: int = 1200) -> list[str]:
     return chunks
 
 
-def _parse_pdf(path: Path) -> list[ParsedChunk]:
+def _parse_pdf(path: Path) -> tuple[list[ParsedChunk], list[str]]:
     from pypdf import PdfReader
 
     reader = PdfReader(str(path))
     chunks: list[ParsedChunk] = []
+    empty_pages: list[int] = []
     for page_index, page in enumerate(reader.pages, start=1):
         text = page.extract_text() or ""
-        for part in _split_text(text):
+        parts = _split_text(text)
+        if not parts:
+            empty_pages.append(page_index)
+        for part in parts:
             chunks.append(ParsedChunk(content=part, page_ref=page_index))
-    return chunks
+    warnings = []
+    if empty_pages:
+        warnings.append(
+            f"{len(empty_pages)} 个 PDF 页面没有可提取文本，可能需要 OCR"
+        )
+    return chunks, warnings
 
 
 def _parse_docx(path: Path) -> list[ParsedChunk]:
     from docx import Document
 
     document = Document(str(path))
-    text = "\n".join(paragraph.text for paragraph in document.paragraphs)
+    blocks = [paragraph.text.strip() for paragraph in document.paragraphs if paragraph.text.strip()]
+    for table_index, table in enumerate(document.tables, start=1):
+        rows = []
+        for row in table.rows:
+            cells = [cell.text.strip() for cell in row.cells]
+            if any(cells):
+                rows.append(" | ".join(cells))
+        if rows:
+            blocks.append(f"[表格 {table_index}]\n" + "\n".join(rows))
+    for section in document.sections:
+        for label, container in (("页眉", section.header), ("页脚", section.footer)):
+            text = "\n".join(p.text.strip() for p in container.paragraphs if p.text.strip())
+            if text:
+                blocks.append(f"[{label}]\n{text}")
+    text = "\n".join(blocks)
     return [ParsedChunk(content=part) for part in _split_text(text)]
 
 
@@ -96,7 +114,8 @@ async def parse(file_path: str, file_type: str) -> ParseResult:
     extension = file_type.lower().lstrip(".")
 
     if extension == "pdf":
-        return ParseResult(chunks=_parse_pdf(path), warnings=[])
+        chunks, warnings = _parse_pdf(path)
+        return ParseResult(chunks=chunks, warnings=warnings)
     if extension == "docx":
         return ParseResult(chunks=_parse_docx(path), warnings=[])
     if extension == "pptx":

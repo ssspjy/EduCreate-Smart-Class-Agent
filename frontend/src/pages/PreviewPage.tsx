@@ -22,7 +22,7 @@ import {
   ExportOutlined,
 } from "@ant-design/icons";
 import { useWorkflowStore } from "../stores/workflow";
-import { apiExportPPTX } from "../services/api";
+import { apiExportDOCX, apiExportPPTX } from "../services/api";
 import type { Outline } from "../services/api";
 
 const { Title, Text } = Typography;
@@ -34,6 +34,7 @@ export default function PreviewPage() {
   const { outline, setCurrentStep } = useWorkflowStore();
   const [stage, setStage] = useState<ExportStage>("idle");
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
+  const [docxUrl, setDocxUrl] = useState<string | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const currentOutline = outline as Outline | null;
@@ -55,6 +56,18 @@ export default function PreviewPage() {
       setErrorMsg(msg);
       setStage("error");
       message.error(`导出失败：${msg}`);
+    }
+  };
+
+  const handleExportDocx = async () => {
+    if (!currentOutline) return;
+    try {
+      const resp = await apiExportDOCX(currentOutline);
+      setDocxUrl(resp.url);
+      message.success("DOCX 教案导出成功");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      message.error(`DOCX 导出失败：${msg}`);
     }
   };
 
@@ -165,6 +178,9 @@ export default function PreviewPage() {
                 >
                   导出 PPTX
                 </Button>
+                <Button onClick={() => void handleExportDocx()}>
+                  导出 DOCX 教案
+                </Button>
                 <Button onClick={() => navigate("/outline")}>返回修改大纲</Button>
               </Space>
             </>
@@ -197,6 +213,11 @@ export default function PreviewPage() {
                 <Button key="quality" onClick={() => { setCurrentStep("quality"); navigate("/quality"); }}>
                   前往质检
                 </Button>,
+                ...(docxUrl ? [
+                  <Button key="docx" href={docxUrl} download>
+                    下载 DOCX 教案
+                  </Button>,
+                ] : []),
               ]}
             />
           )}

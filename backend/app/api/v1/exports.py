@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 from app.core.config import get_settings, resolve_runtime_path
 from app.services.generators.pptx_generator import generate_pptx
+from app.services.generators.docx_generator import generate_docx
 from app.core.security import require_user
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,10 @@ class PptxExportRequest(BaseModel):
     subject: str = ""
     grade: str = ""
     sections: list[dict]  # OutlineSection[]
+
+
+class DocxExportRequest(PptxExportRequest):
+    """DOCX export uses the same outline payload as PPTX."""
 
 
 def _safe_export_stem(title: str) -> str:
@@ -67,15 +72,34 @@ async def export_pptx(body: PptxExportRequest) -> dict:
         ) from exc
 
 
-@router.get("/{filename}", summary="下载 PPTX 文件")
-async def download_pptx(filename: str) -> FileResponse:
-    """下载已导出的 PPTX 文件。"""
+@router.post("/docx", summary="导出 DOCX 教案")
+async def export_docx(body: DocxExportRequest) -> dict:
+    """Render the outline as a valid Word lesson plan."""
+    try:
+        filename = f"{_safe_export_stem(body.title)}_{os.urandom(4).hex()}.docx"
+        filepath = EXPORT_DIR / filename
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+        filepath.write_bytes(generate_docx(body.model_dump()))
+        url = f"/api/v1/exports/{filename}"
+        logger.info("[Export] DOCX 生成成功：%s", filepath)
+        return {"url": url, "filename": filename}
+    except Exception as exc:
+        logger.error("[Export] DOCX 生成失败：%s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"DOCX 导出失败：{exc}",
+        ) from exc
+
+
+@router.get("/{filename}", summary="下载导出文件")
+async def download_export(filename: str) -> FileResponse:
+    """Download a generated PPTX or DOCX file."""
     # 安全检查：禁止路径穿越
     if (
         ".." in filename
         or "/" in filename
         or "\\" in filename
-        or not filename.lower().endswith(".pptx")
+        or Path(filename).suffix.lower() not in {".pptx", ".docx"}
     ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -89,8 +113,13 @@ async def download_pptx(filename: str) -> FileResponse:
             detail=f"文件不存在：{filename}",
         )
 
+    media_type = (
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        if filepath.suffix.lower() == ".docx"
+        else "application/vnd.openxmlformats-officedocument.presentationml.presentation"
+    )
     return FileResponse(
         path=str(filepath),
         filename=filename,
-        media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        media_type=media_type,
     )

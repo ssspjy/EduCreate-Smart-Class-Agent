@@ -349,6 +349,12 @@ export const apiExportPPTX = (outline: Outline): Promise<{ url: string }> =>
     body: JSON.stringify(outline),
   });
 
+export const apiExportDOCX = (outline: Outline): Promise<{ url: string }> =>
+  apiFetch<{ url: string }>("/exports/docx", {
+    method: "POST",
+    body: JSON.stringify(outline),
+  });
+
 // ── GPS DAG ────────────────────────────────────────────────────────────────────
 
 /** 获取澄清会话的 DAG 可视化数据 */

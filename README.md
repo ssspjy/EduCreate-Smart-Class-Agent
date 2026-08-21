@@ -130,7 +130,7 @@ npm audit
 | `materials` | `/api/v1/materials` | 参考资料上传 / 解析 |
 | `lessons` | `/api/v1/lessons` | 教案 / 课件生成 |
 | `knowledge` | `/api/v1/knowledge` | PostgreSQL 使用 pgvector 余弦检索；SQLite/无模型环境自动词法降级 |
-| `exports` | `/api/v1/exports` | 使用 `python-pptx` 生成和下载 `.pptx` |
+| `exports` | `/api/v1/exports` | 使用 `python-pptx` / `python-docx` 生成和下载 `.pptx` / `.docx` |
 | `gps` | `/api/v1/gps` | 教学意图澄清 |
 | `quality` | `/api/v1/quality` | 大纲质量检测 |
 
@@ -170,7 +170,7 @@ npm audit
 - [ ] OCR / 视频转写解析流水线（图片 / 视频）
 - [ ] 语音输入（Web Speech API + MediaRecorder fallback）
 - [ ] PPTAgent 参考页分析 + 编辑 actions + self-correction
-- [ ] 教案 python-docx 生成
+- [x] 教案 python-docx 生成与下载
 - [ ] 互动内容 Jinja2 模板生成
 - [ ] 教师修改意见 → 再生成闭环
 - [ ] 耗时任务异步化后接入 Redis + Celery，并通过 SSE 推送进度

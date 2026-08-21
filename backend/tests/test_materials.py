@@ -5,6 +5,7 @@ from pathlib import Path
 
 from fastapi.testclient import TestClient
 from docx import Document
+from pypdf import PdfWriter
 
 from app.db import SessionLocal
 from app.models import Chunk
@@ -32,6 +33,11 @@ def test_upload_docx_extracts_text_chunks(client: TestClient) -> None:
     document = Document()
     document.add_paragraph("光的折射发生在两种介质的交界面。")
     document.add_paragraph("入射光线、折射光线和法线在同一平面内。")
+    table = document.add_table(rows=2, cols=2)
+    table.cell(0, 0).text = "折射率"
+    table.cell(0, 1).text = "n"
+    table.cell(1, 0).text = "公式"
+    table.cell(1, 1).text = "sin i / sin r"
     buffer = BytesIO()
     document.save(buffer)
     buffer.seek(0)
@@ -63,6 +69,7 @@ def test_upload_docx_extracts_text_chunks(client: TestClient) -> None:
     joined = "\n".join(chunk["content"] for chunk in chunks.json())
     assert "光的折射" in joined
     assert "同一平面" in joined
+    assert "折射率" in joined
 
 
 def test_upload_markdown_extracts_text_chunks(client: TestClient) -> None:
@@ -98,6 +105,41 @@ def test_delete_material_removes_record_and_file(client: TestClient) -> None:
     deleted = client.delete(f"/api/v1/materials/{material_id}")
     assert deleted.status_code == 204
     assert client.get(f"/api/v1/materials/{material_id}").status_code == 404
+
+
+def test_blank_pdf_reports_ocr_warning(client: TestClient) -> None:
+    writer = PdfWriter()
+    writer.add_blank_page(width=300, height=300)
+    buffer = BytesIO()
+    writer.write(buffer)
+
+    response = client.post(
+        "/api/v1/materials/upload",
+        files={"file": ("scan.pdf", buffer.getvalue(), "application/pdf")},
+    )
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "uploaded"
+    assert "OCR" in payload["error_message"]
+
+
+def test_export_docx_returns_valid_word_document(client: TestClient) -> None:
+    response = client.post(
+        "/api/v1/exports/docx",
+        json={
+            "title": "光的折射教案",
+            "subject": "物理",
+            "grade": "初中",
+            "sections": [
+                {"title": "折射率", "bullets": ["理解折射率公式"], "duration_minutes": 10, "slide_count": 1}
+            ],
+        },
+    )
+    assert response.status_code == 200
+    download = client.get(response.json()["url"])
+    assert download.status_code == 200
+    parsed = Document(BytesIO(download.content))
+    assert "光的折射教案" in "\n".join(p.text for p in parsed.paragraphs)
 
 
 def test_upload_filename_path_is_sanitized(client: TestClient) -> None:
