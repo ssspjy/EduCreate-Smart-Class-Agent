@@ -3,6 +3,7 @@
 import logging
 import os
 import re
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from sqlalchemy import func
@@ -10,7 +11,15 @@ from sqlalchemy.orm import Session
 
 from app.core.config import get_settings, resolve_runtime_path
 from app.models import GeneratedArtifact, GenerationJob, Lesson
-from app.schemas.generation import GenerationJobListResponse, GenerationJobResponse, GenerationRequest
+from app.schemas.generation import (
+    ExportArtifactCleanupRequest,
+    ExportArtifactCleanupResponse,
+    ExportArtifactItem,
+    ExportArtifactScanResponse,
+    GenerationJobListResponse,
+    GenerationJobResponse,
+    GenerationRequest,
+)
 from app.services.generators.pptx_generator import generate_pptx
 from app.services.pptagent.editor import apply_actions
 
@@ -81,6 +90,109 @@ def list_generation_jobs(
     )
 
 
+def _referenced_export_paths(db: Session) -> set[Path]:
+    """Resolve database artifact paths once; all cleanup decisions use this set."""
+    referenced: set[Path] = set()
+    for storage_path, in db.query(GeneratedArtifact.storage_path).all():
+        try:
+            referenced.add(Path(storage_path).resolve())
+        except (OSError, TypeError, ValueError):
+            continue
+    return referenced
+
+
+def scan_export_artifacts(
+    db: Session,
+    *,
+    older_than_hours: int = 168,
+    limit: int = 100,
+) -> ExportArtifactScanResponse:
+    """Scan only flat PPTX/DOCX files and mark unreferenced old files as eligible."""
+    if not EXPORT_DIR.exists():
+        return ExportArtifactScanResponse(items=[], total=0, eligible_count=0, older_than_hours=older_than_hours)
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=older_than_hours)
+    referenced = _referenced_export_paths(db)
+    candidates: list[ExportArtifactItem] = []
+    total = 0
+    eligible_count = 0
+    for path in sorted(EXPORT_DIR.iterdir(), key=lambda item: item.stat().st_mtime, reverse=True):
+        if not path.is_file() or path.suffix.lower() not in {".pptx", ".docx"}:
+            continue
+        try:
+            stat = path.stat()
+            modified_at = datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc)
+            resolved = path.resolve()
+        except OSError:
+            continue
+        is_referenced = resolved in referenced
+        eligible = not is_referenced and modified_at <= cutoff
+        total += 1
+        if eligible:
+            eligible_count += 1
+        if len(candidates) < limit:
+            candidates.append(
+                ExportArtifactItem(
+                    filename=path.name,
+                    type=path.suffix.lower().lstrip("."),
+                    size_bytes=stat.st_size,
+                    modified_at=modified_at,
+                    referenced=is_referenced,
+                    eligible=eligible,
+                )
+            )
+    return ExportArtifactScanResponse(
+        items=candidates,
+        total=total,
+        eligible_count=eligible_count,
+        older_than_hours=older_than_hours,
+    )
+
+
+def cleanup_export_artifacts(
+    db: Session,
+    request: ExportArtifactCleanupRequest,
+) -> ExportArtifactCleanupResponse:
+    """Delete only scanned, unreferenced, older-than-cutoff files when explicitly requested."""
+    scan = scan_export_artifacts(
+        db,
+        older_than_hours=request.older_than_hours,
+        limit=request.limit,
+    )
+    if request.dry_run:
+        return ExportArtifactCleanupResponse(
+            **scan.model_dump(),
+            dry_run=True,
+            deleted_count=0,
+        )
+
+    errors: list[str] = []
+    deleted_count = 0
+    items: list[ExportArtifactItem] = []
+    export_root = EXPORT_DIR.resolve()
+    referenced = _referenced_export_paths(db)
+    for item in scan.items:
+        path = EXPORT_DIR / item.filename
+        try:
+            resolved = path.resolve()
+            if export_root not in resolved.parents or resolved in referenced or not item.eligible:
+                items.append(item)
+                continue
+            path.unlink()
+            item.deleted = True
+            deleted_count += 1
+        except OSError as exc:
+            errors.append(f"{item.filename}: {exc}")
+        items.append(item)
+    return ExportArtifactCleanupResponse(
+        items=items,
+        total=scan.total,
+        eligible_count=scan.eligible_count,
+        older_than_hours=scan.older_than_hours,
+        dry_run=False,
+        deleted_count=deleted_count,
+        errors=errors,
+    )
 def _raise_if_cancelled(db: Session, job: GenerationJob) -> None:
     db.refresh(job)
     if job.cancel_requested or job.status in {"cancelling", "cancelled"}:

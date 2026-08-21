@@ -44,6 +44,8 @@ generating → cancelling → cancelled
 
 - `GET /api/v1/exports/jobs/{job_id}`：查询任务快照。
 - `GET /api/v1/exports/jobs`：按 `lesson_id`、状态分页查询生成历史；默认按创建时间倒序返回 20 条，最多 100 条。
+- `GET /api/v1/exports/artifacts`：扫描导出目录，标记数据库未引用且超过保留时间的 PPTX/DOCX 文件。
+- `POST /api/v1/exports/artifacts/cleanup`：安全清理产物；`dry_run` 默认是 `true`，只有显式传 `false` 才会删除符合条件的孤立文件。
 - `GET /api/v1/exports/jobs/{job_id}/events`：订阅 SSE；事件名为 `generation`，`data` 是完整任务 JSON。
 - `POST /api/v1/exports/jobs/{job_id}/cancel`：请求取消。排队任务立即进入 `cancelled`；运行中的任务进入 `cancelling`，在 python-pptx 安全检查点结束后变为 `cancelled`。
 - `POST /api/v1/exports/jobs/{job_id}/retry`：仅允许 `failed` 或 `cancelled` 任务重试，递增 `retry_count` 并复用原始 `request_json`。
@@ -75,4 +77,5 @@ curl.exe -N "http://localhost:8000/api/v1/exports/jobs/<job_id>/events"
 - `failed`：读取 `error_message` 和 Worker traceback。失败任务不会创建伪造下载地址。
 - `cancelling` 长时间不结束：确认 Worker 仍在线；运行中的 python-pptx 不强杀，会在安全检查点清理半成品。
 - 重试后旧任务重复执行：Worker 会校验 Celery task ID，旧消息只读当前状态，不会覆盖新重试任务。
+- 产物清理只处理导出目录下的扁平 PPTX/DOCX 文件；数据库 `generated_artifacts.storage_path` 已引用的文件、保留期内文件和目录外路径均不会删除。
 - SSE 断开：直接查询任务接口；任务状态和结果不会依赖 SSE 连接。

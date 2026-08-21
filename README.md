@@ -208,6 +208,7 @@ npm audit
 - [x] OCR / 视频 / 音频解析接入 Redis + Celery，前端支持 SSE 任务进度、轮询降级并支持取消
 - [x] PPTX 生成接入持久化任务、Celery、SSE 进度流和轮询降级
 - [x] 课件生成历史分页查询与前端下载入口
+- [x] 导出产物扫描、孤立文件识别与默认 dry-run 安全清理
 
 ## 当前验证结果
 
@@ -226,7 +227,7 @@ pytest -q
 结果（阶段十六验证）：
 
 - 前端 Vitest `5 passed`，TypeScript 检查和 Vite 生产构建通过。
-- 后端测试通过：`92 passed`；仍有 `datetime.utcnow()` 弃用警告，不影响当前结果。
+- 后端测试通过：`94 passed`；仍有 `datetime.utcnow()` 弃用警告，不影响当前结果。
 - Compose 中 `postgres`、`redis`、`backend`、`worker`、`frontend` 已实际启动并通过健康检查或任务消费检查。
 - 已验证 Docker 内 PPTX 任务从 `queued` 经 `generating` 到 `completed`，SSE 返回 45%/100% 进度，最终文件可正常下载。
 - 已验证课件任务的协作式取消、取消后重试、旧 Celery task ID 隔离，以及前端重试后的终态刷新。

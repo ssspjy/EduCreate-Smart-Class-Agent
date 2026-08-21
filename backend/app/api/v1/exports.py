@@ -25,15 +25,24 @@ from app.services.generators.docx_generator import generate_docx
 from app.core.security import require_user
 from app.db import SessionLocal, get_db
 from app.models import GeneratedArtifact, GenerationJob, Lesson
-from app.schemas.generation import GenerationJobListResponse, GenerationJobResponse, GenerationRequest
+from app.schemas.generation import (
+    ExportArtifactCleanupRequest,
+    ExportArtifactCleanupResponse,
+    ExportArtifactScanResponse,
+    GenerationJobListResponse,
+    GenerationJobResponse,
+    GenerationRequest,
+)
 from app.schemas.pptagent import PptEditAction
 from app.services.generation_service import (
     TERMINAL_GENERATION_STATUSES,
     create_generation_job,
+    cleanup_export_artifacts,
     cancel_generation_job,
     generation_job_response,
     get_generation_job,
     list_generation_jobs,
+    scan_export_artifacts,
     retry_generation_job,
 )
 from app.services.pptagent.editor import apply_actions
@@ -173,6 +182,23 @@ async def list_pptx_jobs(
         page=page,
         page_size=page_size,
     )
+
+
+@router.get("/artifacts", response_model=ExportArtifactScanResponse, summary="扫描导出产物")
+async def scan_artifacts(
+    older_than_hours: int = Query(default=168, ge=1, le=8760),
+    limit: int = Query(default=100, ge=1, le=500),
+    db: Session = Depends(get_db),
+) -> ExportArtifactScanResponse:
+    return scan_export_artifacts(db, older_than_hours=older_than_hours, limit=limit)
+
+
+@router.post("/artifacts/cleanup", response_model=ExportArtifactCleanupResponse, summary="清理孤立导出产物")
+async def cleanup_artifacts(
+    body: ExportArtifactCleanupRequest,
+    db: Session = Depends(get_db),
+) -> ExportArtifactCleanupResponse:
+    return cleanup_export_artifacts(db, body)
 
 
 @router.get("/jobs/{job_id}", response_model=GenerationJobResponse, summary="查询课件生成任务")

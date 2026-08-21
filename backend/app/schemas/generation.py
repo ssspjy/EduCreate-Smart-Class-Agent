@@ -63,3 +63,34 @@ class GenerationActionResponse(BaseModel):
 
     job: GenerationJobResponse
     message: str
+
+
+class ExportArtifactItem(BaseModel):
+    """A file found in the export directory and its cleanup safety state."""
+
+    filename: str
+    type: Literal["pptx", "docx"]
+    size_bytes: int
+    modified_at: datetime
+    referenced: bool
+    eligible: bool
+    deleted: bool = False
+
+
+class ExportArtifactScanResponse(BaseModel):
+    items: list[ExportArtifactItem]
+    total: int
+    eligible_count: int
+    older_than_hours: int
+
+
+class ExportArtifactCleanupRequest(BaseModel):
+    older_than_hours: int = Field(default=168, ge=1, le=8760)
+    dry_run: bool = True
+    limit: int = Field(default=100, ge=1, le=500)
+
+
+class ExportArtifactCleanupResponse(ExportArtifactScanResponse):
+    dry_run: bool
+    deleted_count: int
+    errors: list[str] = Field(default_factory=list)

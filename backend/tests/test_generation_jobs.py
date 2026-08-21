@@ -1,12 +1,14 @@
 """Courseware generation job, persistence and SSE tests."""
 
+import os
+import time
 from pathlib import Path
 
 from fastapi.testclient import TestClient
 
 from app.db import SessionLocal
 from app.models import GeneratedArtifact, GenerationJob
-from app.services.generation_service import run_generation_job
+from app.services.generation_service import EXPORT_DIR, run_generation_job
 
 
 def _outline(lesson_id: str) -> dict:
@@ -102,6 +104,36 @@ def test_generation_job_history_supports_pagination_and_filters(client: TestClie
     completed = client.get("/api/v1/exports/jobs", params={"status": "completed", "page_size": 100})
     assert completed.status_code == 200
     assert completed.json()["total"] >= 2
+
+
+def test_export_artifact_scan_and_safe_cleanup(client: TestClient) -> None:
+    lesson = client.post("/api/v1/lessons", json={"title": "产物清理测试"}).json()["id"]
+    generated = client.post("/api/v1/exports/pptx/jobs", json=_outline(lesson)).json()
+    referenced_path = Path(EXPORT_DIR) / generated["output"]["filename"]
+    orphan_path = referenced_path.parent / "orphan-old.pptx"
+    orphan_path.write_bytes(b"orphan")
+    old_timestamp = time.time() - 10 * 24 * 60 * 60
+    os.utime(orphan_path, (old_timestamp, old_timestamp))
+
+    scan = client.get("/api/v1/exports/artifacts", params={"older_than_hours": 24})
+    assert scan.status_code == 200
+    scan_items = {item["filename"]: item for item in scan.json()["items"]}
+    assert scan_items[generated["output"]["filename"]]["referenced"] is True
+    assert scan_items["orphan-old.pptx"]["eligible"] is True
+
+    dry_run = client.post("/api/v1/exports/artifacts/cleanup", json={"older_than_hours": 24})
+    assert dry_run.status_code == 200
+    assert dry_run.json()["dry_run"] is True
+    assert orphan_path.is_file()
+
+    cleaned = client.post(
+        "/api/v1/exports/artifacts/cleanup",
+        json={"older_than_hours": 24, "dry_run": False},
+    )
+    assert cleaned.status_code == 200
+    assert cleaned.json()["deleted_count"] == 1
+    assert not orphan_path.exists()
+    assert referenced_path.is_file()
 
 
 def test_generation_job_events_return_404(client: TestClient) -> None:
